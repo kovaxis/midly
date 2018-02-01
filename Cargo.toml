@@ -1,0 +1,8 @@
+[package]
+name = "midly"
+version = "0.1.0"
+authors = ["Andrighetti Márquez"]
+
+[dependencies]
+error-chain = "0.11"
+bit = "0.1"
