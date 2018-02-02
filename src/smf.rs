@@ -11,12 +11,16 @@ use rayon;
 #[derive(Clone,Debug)]
 pub struct SmfBuffer(Box<[u8]>);
 impl SmfBuffer {
+  ///Creates an SmfBuffer from a normal buffer
+  pub fn new<B: Into<Box<[u8]>>>(buf: B)->SmfBuffer {
+    SmfBuffer(buf.into())
+  }
   ///Opens and reads a file, storing it in memory but not parsing it
   pub fn open<P: AsRef<Path>>(path: P)->io::Result<SmfBuffer> {
     let mut file=File::open(path)?;
     let mut buffer=Vec::with_capacity((file.metadata().map(|meta| meta.len()).unwrap_or(0)+1) as usize);
     file.read_to_end(&mut buffer)?;
-    Ok(SmfBuffer(buffer.into_boxed_slice()))
+    Ok(SmfBuffer::new(buffer))
   }
   ///Borrows the full in-memory buffer and parses an SMF generically.
   ///Due to generics, the `parse_*` functions are preferred.

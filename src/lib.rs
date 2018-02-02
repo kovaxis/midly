@@ -1,3 +1,21 @@
+//! # Usage
+//!
+//! The `Smf` `struct` is used to store a parsed Standard Midi File.
+//! Note that it has a lifetime, since it references the original bytes for the file in order to not allocate memory.
+//! For this reason, the byte buffer must outlive the `Smf` structure:
+//! ```
+//! use midly::Smf;
+//! let bytes=include_bytes!("test-asset/Clementi.mid");
+//! let smf=Smf::read(bytes).unwrap();
+//! ```
+//!
+//! To ease loading files from the filesystem and dealing with generics, use `SmfBuffer` instead:
+//! ```
+//! let smf=SmfBuffer::open("test-asset/Clementi.mid");
+//! let smf=smf.parse_collect().unwrap();
+//! ```
+//! Check the documentation for `SmfBuffer` for more information on `parse_*` methods.
+
 #[macro_use]
 extern crate error_chain;
 extern crate bit;
