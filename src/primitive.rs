@@ -97,6 +97,7 @@ macro_rules! restricted_int {
           Some($name(raw))
         }
       }
+      pub fn as_int(self)->$inner {Into::into(self)}
     }
     $( int_feature!{$name ; $inner : $feature} )*
   };
@@ -144,7 +145,7 @@ impl IntReadBottom7 for Varlen {
 
 ///Reads a slice represented in the input as a `Varlen` `len` followed by `len` bytes
 pub fn read_varlen_slice<'a>(raw: &mut &'a [u8])->Result<&'a [u8]> {
-  let len: u32=Varlen::read_u7(raw).chain_err(|| "failed to read varlen slice length")?.into();
+  let len=Varlen::read_u7(raw).chain_err(|| "failed to read varlen slice length")?.as_int();
   Ok(raw.split_checked(len as usize).ok_or("incomplete varlen slice")?)
 }
 
@@ -230,8 +231,8 @@ impl SmpteTime {
   pub fn read(raw: &mut &[u8])->Result<SmpteTime> {
     let data=raw.split_checked(5).ok_or("failed to read smpte time data")?;
     let hour=data[0];
-    let (hour,fps)=(hour.bit_range(0..5),hour.bit_range(5..7).into());
-    let fps=Fps::from_code(fps);
+    let (hour,fps)=(hour.bit_range(0..5),hour.bit_range(5..7));
+    let fps=Fps::from_code(u2::from(fps));
     let minute=data[1];
     let second=data[2];
     let frame=data[3];
@@ -250,7 +251,7 @@ pub enum Fps {
 impl Fps {
   ///Does transformation from 2-bit fps code
   fn from_code(code: u2)->Fps {
-    match code.into() {
+    match code.as_int() {
       0=>Fps::Fps24,
       1=>Fps::Fps25,
       2=>Fps::Fps29,

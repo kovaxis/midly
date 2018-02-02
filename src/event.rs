@@ -47,7 +47,7 @@ impl<'a> EventKind<'a> {
     //Delegate further parsing depending on status
     let kind=match status {
       0x80...0xEF=>{
-        let channel=status.bit_range(0..4).into();
+        let channel=u4::from(status.bit_range(0..4));
         EventKind::Midi{
           channel,
           message: MidiMessage::read(raw,status).chain_err(|| "failed to read midi message")?,
