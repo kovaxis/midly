@@ -1,20 +1,30 @@
-//! # Usage
+//! # Examples
 //!
-//! The `Smf` `struct` is used to store a parsed Standard Midi File.
-//! Note that it has a lifetime, since it references the original bytes for the file in order to not allocate memory.
-//! For this reason, the byte buffer must outlive the `Smf` structure:
-//! ```
-//! use midly::Smf;
-//! let bytes=include_bytes!("test-asset/Clementi.mid");
-//! let smf=Smf::read(bytes).unwrap();
+//! The `Smf` struct is used to store a parsed Standard Midi File (.mid and .midi files).
+//! Notice that it has a lifetime parameter, since it stores references to the raw file bytes.
+//! For this reason, the byte buffer must be created separately to the `Smf` structure:
+//!
+//! ```rust
+//! use midly::{Smf,Event};
+//! //Load bytes into a buffer
+//! let bytes=include_bytes!("../test-asset/Clementi.mid");
+//! //Parse file in a separate step
+//! let smf: Smf<Vec<Event>>=Smf::read(bytes).unwrap();
 //! ```
 //!
-//! To ease loading files from the filesystem and dealing with generics, use `SmfBuffer` instead:
-//! ```
-//! let smf=SmfBuffer::open("test-asset/Clementi.mid");
+//! However, preloading into a buffer and dealing with generics can be tedious.
+//! For this purposes, use `SmfBuffer` instead, which provides several `parse_*` non-generic methods.
+//!
+//! ```rust
+//! use midly::SmfBuffer;
+//! //Load bytes into a buffer
+//! let smf=SmfBuffer::open("test-asset/Clementi.mid").unwrap();
+//! //Parse bytes in a separate step
+//! //When in doubt, use parse_collect!
 //! let smf=smf.parse_collect().unwrap();
 //! ```
-//! Check the documentation for `SmfBuffer` for more information on `parse_*` methods.
+//!
+//! Check the documentation for `SmfBuffer` for more information on the different `parse_*` methods.
 
 #[macro_use]
 extern crate error_chain;
@@ -45,6 +55,7 @@ mod primitive;
 pub use error::Error;
 pub use smf::{SmfBuffer,Smf,TrackIter,Header};
 pub use event::{Event,EventKind,MidiMessage,MetaMessage};
+///Many kinds of numbers upholding different guarantees about their contents.
 pub mod number {
   pub use primitive::{u4,u7,u14,u15,u24,Varlen as VarlenInt};
 }
