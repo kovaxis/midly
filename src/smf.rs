@@ -5,6 +5,7 @@ use std::path::Path;
 use std::io;
 use std::io::Read;
 use std::fs::File;
+use rayon;
 
 ///"Easy" way to do file loading
 #[derive(Clone,Debug)]
@@ -17,23 +18,25 @@ impl SmfBuffer {
     file.read_to_end(&mut buffer)?;
     Ok(SmfBuffer(buffer.into_boxed_slice()))
   }
-  ///Borrows the full in-memory buffer and parses an SMF generically
+  ///Borrows the full in-memory buffer and parses an SMF generically.
+  ///Due to generics, the `parse_*` functions are preferred.
+  ///In doubt, use `parse_collect`, which automatically does multithreaded parsing and stores
+  ///events in an easy-to-use `Vec`.
   pub fn parse<'a,T: TrackRepr<'a>>(&'a self)->Result<Smf<'a,T>> {Smf::read(&self.0)}
-  ///Parses an SMF but not its events, deferring it for later
-  ///The iterator will parse lazily, meaning it will do no allocations,
-  ///cutting on time (/1 ~ /2 as long experimentally) and memory (/1 - /21 theoretically)
-  ///However, please note that memory and CPU usage only matter when parsing large files
-  ///Yields both underlying bytes and events
+  ///Parses an SMF but not its events, deferring it for later.
+  ///The iterator will parse lazily, meaning it will do no allocations. This means performance
+  ///gains if you know what you're doing and implement multithreading yourself.
+  ///Yields both underlying bytes and events.
   pub fn parse_defer<'a>(&'a self)->Result<Smf<TrackIter<'a>>> {self.parse()}
-  ///Parses an SMF, collecting only events in a `Vec` and discarding raw bytes to save memory
+  ///Parses an SMF, collecting into a `Vec` only events, discarding raw bytes to save memory.
   pub fn parse_collect<'a>(&'a self)->Result<Smf<Vec<Event<'a>>>> {self.parse()}
-  ///Parses an SMF, collecting events and their underlying bytes in a `Vec`
+  ///Parses an SMF, collecting events and their underlying bytes into a `Vec`.
   pub fn parse_collect_bytes<'a>(&'a self)->Result<Smf<Vec<(&'a [u8],Event<'a>)>>> {self.parse()}
 }
 
-///Represents a Standard Midi File (.mid and .midi files)
-///Yields `TrackRepr` on a Vec, allowing for customization on what is stored in a track
-///References an outside byte array
+///Represents a Standard Midi File (.mid and .midi files).
+///Yields `TrackRepr` on a Vec, allowing for customization on what is stored in a track.
+///References an outside byte array.
 #[derive(Clone,Debug)]
 pub struct Smf<'a,T: TrackRepr<'a>> {
   pub header: Header,
@@ -41,12 +44,15 @@ pub struct Smf<'a,T: TrackRepr<'a>> {
   _lifetime: PhantomData<&'a ()>,
 }
 impl<'a,T: TrackRepr<'a>> Smf<'a,T> {
-  pub fn new(header: Header,tracks: Vec<T>)->Smf<'a,T> {
-    Smf {
+  pub fn new(header: Header,tracks: Vec<T>)->Result<Smf<'a,T>> {
+    if header.track_count as usize!=tracks.len() {
+      bail!("file has a different amount of tracks than declared");
+    }
+    Ok(Smf {
       header,
       tracks,
       _lifetime: PhantomData,
-    }
+    })
   }
   pub fn read(raw: &'a [u8])->Result<Smf<'a,T>> {
     let mut chunks=ChunkIter::read(raw);
@@ -54,16 +60,31 @@ impl<'a,T: TrackRepr<'a>> Smf<'a,T> {
       Chunk::Header(header)=>Ok(header),
       Chunk::Track(_)=>Err("midi header not found"),
     }?;
-    let tracks=chunks.map(|result| result.and_then(|chunk| {
+    let mut tracks: Vec<Result<_>>=Vec::with_capacity(header.track_count as usize);
+    tracks.extend((0..header.track_count).map(|_| Err("less tracks found than declared in header".into())));
+    rayon::scope(|s| {
+      for (chunk,track) in chunks.zip(tracks.iter_mut()) {
+        s.spawn(move |_| {
+          *track=(||{
+            match chunk? {
+              Chunk::Track(track)=>T::read(track),
+              Chunk::Header(_)=>Err("found duplicate header".into()),
+            }
+          })()
+        });
+      }
+    });
+    let tracks=tracks.into_iter().collect::<Result<Vec<T>>>()?;
+    /*
+    chunks.par_iter().map(|result| result.and_then(|chunk| {
       match chunk {
         Chunk::Track(track)=>T::read(track),
         Chunk::Header(_)=>Err("found duplicate header".into()),
       }
     })).collect::<Result<Vec<_>>>()?;
-    if header.track_count as usize!=tracks.len() {
-      bail!("file has a different amount of tracks than declared");
-    }
-    Ok(Smf::new(header,tracks))
+    
+    */
+    Ok(Smf::new(header,tracks)?)
   }
 }
 
@@ -143,7 +164,7 @@ impl Header {
 
 ///Allows for customization on how tracks are stored in memory
 ///Check implementors for options
-pub trait TrackRepr<'a>: Sized {
+pub trait TrackRepr<'a>: Sized + Send {
   fn read(&'a [u8])->Result<Self>;
 }
 

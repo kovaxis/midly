@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate error_chain;
 extern crate bit;
+extern crate rayon;
 
 ///All errors this crate produces
 mod error {

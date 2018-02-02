@@ -1,21 +1,52 @@
 use {SmfBuffer,Event,TrackIter};
 use std::time::{Instant};
 
-#[test]
-fn parse_test() {
-  let smf=SmfBuffer::open("test-asset/test.midi").unwrap();
-  let smf=smf.parse::<Vec<Event>>().unwrap();
-  println!("{} tracks",smf.tracks.len());
-}
-#[test]
-fn parse_pi() {
-  let start=Instant::now();
-  let smf=SmfBuffer::open("test-asset/Pi.mid").unwrap();
-  let smf=smf.parse::<TrackIter>().unwrap();
-  let counts: Vec<_>=smf.tracks.into_iter().map(|track| track.count()).collect();
-  for (i,count) in counts.iter().enumerate() {
-    println!("track {} has {} events",i,count);
+///Open
+macro_rules! open {
+  {$name:ident : $file:expr}=>{
+    let $name=SmfBuffer::open(format!("test-asset/{}",$file)).unwrap();
   }
+}
+///Standardized testing
+macro_rules! test {
+  {($name:expr , $file:expr) => {$method_parse:ident,$method_len:ident}}=>{{
+    let counts=time($name,||->Vec<_> {
+      open!{smf: $file};
+      let smf=smf. $method_parse ().unwrap();
+      smf.tracks.into_iter().map(|track| track. $method_len ()).collect()
+    });
+    for (i,count) in counts.iter().enumerate() {
+      println!("track {} has {} events",i,count);
+    }
+  }}
+}
+///Timing
+fn time<F: FnOnce()->R,R>(activity: &str,op: F)->R {
+  let start=Instant::now();
+  let result=op();
   let took=Instant::now()-start;
-  println!("took {}ms parsing pi",(took*1000).as_secs());
+  println!("{}: {}ms",activity,(took*1000).as_secs());
+  result
+}
+
+///Parsing
+mod parse {
+  use super::*;
+  
+  #[test]
+  fn clementi_defer() {
+    test!(("parse_clementi_iter","Clementi.mid")=>{parse_defer,count});
+  }
+  #[test]
+  fn clementi_collect() {
+    test!(("parse_clementi_vec","Clementi.mid")=>{parse_collect,len});
+  }
+  #[test]
+  fn pi_defer() {
+    test!(("parse_pi_iter","Pi.mid")=>{parse_defer,count});
+  }
+  #[test]
+  fn pi_collect() {
+    test!(("parse_pi_vec","Pi.mid")=>{parse_collect,len});
+  }
 }
