@@ -6,6 +6,12 @@ include = [
   "/src/*",
   "/Cargo.toml",
 ]
+description = "A Rusty ultra-fast, safe, easy to use MIDI parsing library designed for multi-MB files"
+repository = "https://github.com/negamartin/midly"
+readme = "README.md"
+keywords = ["parser","audio"]
+categories = ["multimedia","multimedia::audio","multimedia::encoding"]
+license = "Unlicense"
 
 [dependencies]
 error-chain = "0.11"
