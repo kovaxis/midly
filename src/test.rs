@@ -1,4 +1,4 @@
-use {SmfBuffer,Event,TrackIter};
+use SmfBuffer;
 use std::time::{Instant};
 
 ///Open
