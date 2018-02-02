@@ -55,6 +55,7 @@ mod primitive;
 pub use error::Error;
 pub use smf::{SmfBuffer,Smf,TrackIter,Header};
 pub use event::{Event,EventKind,MidiMessage,MetaMessage};
+pub use primitive::{Format,Timing,SmpteTime,Fps};
 ///Many kinds of numbers upholding different guarantees about their contents.
 pub mod number {
   pub use primitive::{u4,u7,u14,u15,u24,Varlen as VarlenInt};
