@@ -185,7 +185,7 @@ impl Timing {
       //Timecode
       let fps=-(raw.bit_range(8..16) as i8);
       let subframe=raw.bit_range(0..8) as u8;
-      Ok(Timing::Timecode(Fps::from_u8(fps as u8).ok_or("invalid smpte fps")?,subframe))
+      Ok(Timing::Timecode(Fps::from_int(fps as u8).ok_or("invalid smpte fps")?,subframe))
     }else{
       //Metrical
       Ok(Timing::Metrical(u15::from(raw)))
@@ -215,7 +215,7 @@ impl SmpteTime {
     check!(hour<24);
     check!(minute<60);
     check!(second<60);
-    check!(frame<fps.as_u8());
+    check!(frame<fps.as_int());
     check!(subframe<100);
     Some(SmpteTime{hour,minute,second,frame,subframe,fps})
   }
@@ -250,7 +250,7 @@ pub enum Fps {
 }
 impl Fps {
   ///Does transformation from 2-bit fps code
-  fn from_code(code: u2)->Fps {
+  pub fn from_code(code: u2)->Fps {
     match code.as_int() {
       0=>Fps::Fps24,
       1=>Fps::Fps25,
@@ -260,7 +260,7 @@ impl Fps {
     }
   }
   ///Does direct transformation (ie. 24 -> Fps24)
-  fn from_u8(raw: u8)->Option<Fps> {
+  pub fn from_int(raw: u8)->Option<Fps> {
     Some(match raw {
       24=>Fps::Fps24,
       25=>Fps::Fps25,
@@ -270,7 +270,7 @@ impl Fps {
     })
   }
   ///Get the numerical approximate fps out
-  fn as_u8(self)->u8 {
+  pub fn as_int(self)->u8 {
     match self {
       Fps::Fps24=>24,
       Fps::Fps25=>25,
@@ -279,8 +279,8 @@ impl Fps {
     }
   }
   ///Get the actual f32 fps out
-  fn as_f32(self)->f32 {
-    match self.as_u8() {
+  pub fn as_f32(self)->f32 {
+    match self.as_int() {
       24=>24.0,
       25=>25.0,
       29=>30.0/1.001,
