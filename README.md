@@ -15,5 +15,5 @@ And then the following line to your crate root:
 extern crate midly;
 ```
 
-All types to be imported are on the crate root, and they are directly documented in the source (docs.rs)
+Most types to be imported are on the crate root and are documented in-place.
 Check the crate documentation for examples and usage!

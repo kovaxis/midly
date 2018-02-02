@@ -3,8 +3,8 @@ name = "midly"
 version = "0.1.0"
 authors = ["negamartin"]
 include = [
-  "**/*.rs",
-  "Cargo.toml",
+  "/src/*",
+  "/Cargo.toml",
 ]
 
 [dependencies]
