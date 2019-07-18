@@ -13,7 +13,8 @@
 //! ```
 //!
 //! However, preloading into a buffer and dealing with generics can be tedious.
-//! For this purposes, use `SmfBuffer` instead, which provides several `parse_*` non-generic methods.
+//! For this purposes, use `SmfBuffer` instead, which provides several `parse_*` non-generic
+//! methods.
 //!
 //! ```rust
 //! use midly::SmfBuffer;
@@ -24,41 +25,44 @@
 //! let smf=smf.parse_collect().unwrap();
 //! ```
 //!
-//! Check the documentation for `SmfBuffer` for more information on the different `parse_*` methods.
+//! Check the documentation for `SmfBuffer` for more information on the different `parse_*`
+//! methods.
 
-#[macro_use]
-extern crate error_chain;
-extern crate bit;
-extern crate rayon;
-
-///All errors this crate produces
+/// All of the errors this crate produces.
 mod error {
-  error_chain!{}
+    pub type Error = failure::Error;
+    pub type Result<T> = std::result::Result<T, Error>;
 }
 
 mod prelude {
-  pub use error::*;
-  pub use primitive::{Varlen,u2,u4,u7,u14,u15,u24,IntRead,IntReadBottom7,SplitChecked};
-  pub use bit::BitIndex;
-  pub use std::marker::PhantomData;
+    pub use crate::{
+        error::*,
+        primitive::{u14, u15, u2, u24, u28, u4, u7, IntRead, IntReadBottom7, SplitChecked},
+    };
+    pub use bit::BitIndex;
+    pub use failure::{bail, ensure, err_msg, ResultExt};
+    pub use std::marker::PhantomData;
 }
 
-///Parsing for SMF files, chunks and tracks
-mod smf;
-///All sort of events and their parsing
+/// All sort of events and their parsing.
 mod event;
-///Simple building-block data that can be read in one go.
-///All are stored in a fixed size (`Sized`) representation
-///Also, primitives advance the file pointer when read
+/// Simple building-block data that can be read in one go.
+/// All are stored in a fixed size (`Sized`) representation.
+/// Also, primitives advance the file pointer when read.
 mod primitive;
+/// Parsing for SMF files, chunks and tracks.
+mod smf;
 
-pub use error::Error;
-pub use smf::{SmfBuffer,Smf,TrackIter,Header};
-pub use event::{Event,EventKind,MidiMessage,MetaMessage};
-pub use primitive::{Format,Timing,SmpteTime,Fps};
-///Many kinds of numbers upholding different guarantees about their contents.
+pub use crate::{
+    error::Error,
+    event::{Event, EventKind, MetaMessage, MidiMessage},
+    primitive::{Format, Fps, SmpteTime, Timing},
+    smf::{Header, Smf, SmfBuffer, TrackIter},
+};
+
+/// Special-length integers used by the MIDI standard.
 pub mod number {
-  pub use primitive::{u4,u7,u14,u15,u24,Varlen as VarlenInt};
+    pub use crate::primitive::{u14, u15, u24, u28, u4, u7};
 }
 
 #[cfg(test)]
