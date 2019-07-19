@@ -1,6 +1,14 @@
-use crate::{event::Event,prelude::*,primitive::{Format, Timing}};
+use crate::{
+    event::Event,
+    prelude::*,
+    primitive::{Format, Timing},
+};
 use rayon;
-use std::{fs::File,io::{Read, self},path::Path};
+use std::{
+    fs::File,
+    io::{self, Read},
+    path::Path,
+};
 
 /// "Easy" way to do file loading.
 #[derive(Clone, Debug)]
@@ -10,6 +18,7 @@ impl SmfBuffer {
     pub fn new<B: Into<Box<[u8]>>>(buf: B) -> SmfBuffer {
         SmfBuffer(buf.into())
     }
+
     /// Opens and reads a file, storing it in memory but not parsing it.
     pub fn open<P: AsRef<Path>>(path: P) -> io::Result<SmfBuffer> {
         let mut file = File::open(path)?;
@@ -18,6 +27,17 @@ impl SmfBuffer {
         file.read_to_end(&mut buffer)?;
         Ok(SmfBuffer::new(buffer))
     }
+
+    /// Peek into the inner buffer.
+    pub fn inner(&self) -> &[u8] {
+        &self.0
+    }
+
+    /// Get the inner buffer out.
+    pub fn into_inner(self) -> Box<[u8]> {
+        self.0
+    }
+
     /// Borrows the full in-memory buffer and parses an SMF generically.
     /// Due to generics, the `parse_*` functions are preferred.
     /// In doubt, use `parse_collect`, which automatically does multithreaded parsing and stores
@@ -25,6 +45,7 @@ impl SmfBuffer {
     pub fn parse<'a, T: TrackRepr<'a>>(&'a self) -> Result<Smf<'a, T>> {
         Smf::read(&self.0)
     }
+
     /// Parses an SMF but not its events, deferring it for later.
     /// The iterator will parse lazily, meaning it will do no allocations. This means performance
     /// gains if you know what you're doing and implement multithreading yourself.
@@ -32,10 +53,12 @@ impl SmfBuffer {
     pub fn parse_defer<'a>(&'a self) -> Result<Smf<TrackIter<'a>>> {
         self.parse()
     }
+
     /// Parses an SMF, collecting into a `Vec` only events, discarding raw bytes to save memory.
     pub fn parse_collect<'a>(&'a self) -> Result<Smf<Vec<Event<'a>>>> {
         self.parse()
     }
+
     /// Parses an SMF, collecting events and their underlying bytes into a `Vec`.
     pub fn parse_collect_bytes<'a>(&'a self) -> Result<Smf<Vec<(&'a [u8], Event<'a>)>>> {
         self.parse()
@@ -53,8 +76,11 @@ pub struct Smf<'a, T: TrackRepr<'a>> {
 }
 impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
     pub fn new(header: Header, tracks: Vec<T>) -> Result<Smf<'a, T>> {
-        if header.track_count as usize != tracks.len() {
-            bail!("file has a different amount of tracks than declared");
+        if !cfg!(feature = "lenient") {
+            ensure!(
+                header.track_count as usize == tracks.len(),
+                err_malformed("file has a different amount of tracks than declared")
+            );
         }
         Ok(Smf {
             header,
@@ -64,35 +90,43 @@ impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
     }
     pub fn read(raw: &'a [u8]) -> Result<Smf<'a, T>> {
         let mut chunks = ChunkIter::read(raw);
-        let header = match chunks.next().ok_or(err_msg("expected header, found eof"))?? {
-            Chunk::Header(header) => Ok(header),
-            Chunk::Track(_) => Err(err_msg("midi header not found")),
+        let header = match chunks.next() {
+            Some(maybe_chunk) => match maybe_chunk.context(err_invalid("invalid midi header"))? {
+                Chunk::Header(header) => Ok(header),
+                Chunk::Track(_) => Err(err_invalid("expected header, found track")),
+            },
+            None => Err(err_invalid("empty file")),
         }?;
-        let mut tracks: Vec<Result<_>> = Vec::with_capacity(header.track_count as usize);
-        tracks.extend(
-            (0..header.track_count)
-                .map(|_| Err(err_msg("less tracks found than declared in header").into())),
-        );
+        let mut tracks: Vec<Option<Result<_>>> = Vec::with_capacity(header.track_count as usize);
+        tracks.extend((0..header.track_count).map(|_| None));
         rayon::scope(|s| {
-            for (chunk, track) in chunks.zip(tracks.iter_mut()) {
+            for (chunk_parse_result, track) in chunks.zip(tracks.iter_mut()) {
                 s.spawn(move |_| {
-                    *track = (|| match chunk? {
-                        Chunk::Track(track) => T::read(track),
-                        Chunk::Header(_) => Err(err_msg("found duplicate header").into()),
-                    })()
+                    *track = match chunk_parse_result {
+                        Ok(Chunk::Track(track)) => Some(T::read(track)),
+                        //Read another header (?)
+                        Ok(Chunk::Header(_)) => if cfg!(feature = "lenient") {
+                            //Ignore duplicate header
+                            None
+                        }else{
+                            Some(Err(err_malformed("found duplicate header").into()))
+                        },
+                        //Failed to read chunk
+                        Err(err) => if cfg!(feature = "lenient") {
+                            //Ignore invalid chunk
+                            None
+                        }else{
+                            Some(Err(err).context(err_malformed("invalid chunk")).map_err(|err| err.into()))
+                        },
+                    };
                 });
             }
         });
-        let tracks = tracks.into_iter().collect::<Result<Vec<T>>>()?;
-        /*
-        chunks.par_iter().map(|result| result.and_then(|chunk| {
-          match chunk {
-            Chunk::Track(track)=>T::read(track),
-            Chunk::Header(_)=>Err("found duplicate header".into()),
-          }
-        })).collect::<Result<Vec<_>>>()?;
-
-        */
+        let tracks = tracks
+            .into_iter()
+            .filter_map(|opt| opt)
+            .collect::<Result<Vec<T>>>()?;
+        
         Ok(Smf::new(header, tracks)?)
     }
 }
@@ -135,23 +169,32 @@ impl<'a> Chunk<'a> {
     /// The slice will be modified to point to the next chunk.
     /// If we're *exactly* at EOF (slice length 0), returns a None signalling no more chunks.
     fn read(raw: &mut &'a [u8]) -> Result<Option<Chunk<'a>>> {
-        if raw.len() == 0 {
-            return Ok(None);
-        }
-        let id = raw
-            .split_checked(4)
-            .ok_or(err_msg("failed to read expected chunkid"))?;
-        let len = u32::read(raw).context("failed to read expected chunklen")?;
-        let chunkdata = raw
-            .split_checked(len as usize)
-            .ok_or(err_msg("reached eof before chunk ended"))?;
-        if id == "MThd".as_bytes() {
-            Ok(Some(Chunk::Header(Header::read(chunkdata)?)))
-        } else if id == "MTrk".as_bytes() {
-            Ok(Some(Chunk::Track(chunkdata)))
-        } else {
-            //Unknown chunk, just ignore and read the next one (notice tail call)
-            Chunk::read(raw)
+        loop {
+            if raw.len() == 0 {
+                break Ok(None);
+            }
+            let id = raw
+                .split_checked(4)
+                .ok_or(err_invalid("failed to read chunkid"))?;
+            let len = u32::read(raw).context(err_invalid("failed to read chunklen"))?;
+            let chunkdata = match raw.split_checked(len as usize) {
+                Some(chunkdata) => chunkdata,
+                None => {
+                    if cfg!(feature = "lenient") {
+                        //Just use the remainder of the file
+                        mem::replace(raw, &[])
+                    } else {
+                        bail!(err_malformed("reached eof before chunk ended"));
+                    }
+                }
+            };
+            if id == "MThd".as_bytes() {
+                break Ok(Some(Chunk::Header(Header::read(chunkdata)?)));
+            } else if id == "MTrk".as_bytes() {
+                break Ok(Some(Chunk::Track(chunkdata)));
+            } else {
+                //Unknown chunk, just ignore and read the next one
+            }
         }
     }
 }
@@ -171,13 +214,16 @@ impl Header {
             track_count,
         }
     }
-    
+
     pub fn read(mut raw: &[u8]) -> Result<Header> {
         let format = Format::read(&mut raw)?;
         let track_count = u16::read(&mut raw)?;
-        if let Format::SingleTrack = format {
-            if track_count != 1 {
-                bail!("singletrack format file has multiple tracks")
+        if !cfg!(feature = "lenient") {
+            if let Format::SingleTrack = format {
+                ensure!(
+                    track_count == 1,
+                    err_malformed("singletrack format file has multiple tracks")
+                );
             }
         }
         let timing = Timing::read(&mut raw)?;
@@ -211,7 +257,16 @@ impl<'a> Iterator for TrackIter<'a> {
     type Item = Result<(&'a [u8], Event<'a>)>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.raw.len() > 0 {
-            Some(Event::read(&mut self.raw, &mut self.running_status))
+            let read_result = Event::read(&mut self.raw, &mut self.running_status);
+            if cfg!(feature = "lenient") {
+                match read_result {
+                    Ok(ev) => Some(Ok(ev)),
+                    //Ignore errors
+                    Err(_err) => None,
+                }
+            }else{
+                Some(read_result)
+            }
         } else {
             None
         }

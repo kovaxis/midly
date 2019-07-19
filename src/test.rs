@@ -1,5 +1,6 @@
-use std::time::Instant;
 use crate::SmfBuffer;
+use failure::Fail;
+use std::time::Instant;
 
 /// Open and read the content of a file.
 macro_rules! open {
@@ -13,7 +14,16 @@ macro_rules! test {
     {($name:expr , $file:expr) => {$method_parse:ident,$method_len:ident}} => {{
         let counts = time($name, ||->Vec<_> {
             open!{smf: $file};
-            let smf=smf.$method_parse().unwrap();
+            let smf = match smf.$method_parse() {
+                Ok(smf) => smf,
+                Err(err) => {
+                    eprintln!("failed to parse test file:");
+                    for cause in (&err as &Fail).iter_chain() {
+                        eprintln!("  {}", cause);
+                    }
+                    panic!()
+                },
+            };
             smf.tracks.into_iter().map(|track| track.$method_len()).collect()
         });
         for (i,count) in counts.iter().enumerate() {
@@ -43,7 +53,7 @@ mod parse {
     fn clementi_collect() {
         test!(("parse_clementi_vec","Clementi.mid") => {parse_collect,len});
     }
-    
+
     #[test]
     fn pi_defer() {
         test!(("parse_pi_iter","Pi.mid") => {parse_defer,count});
@@ -51,5 +61,26 @@ mod parse {
     #[test]
     fn pi_collect() {
         test!(("parse_pi_vec","Pi.mid") => {parse_collect,len});
+    }
+    
+    #[test]
+    #[cfg_attr(not(feature = "lenient"), should_panic)]
+    fn pidamaged_defer() {
+        test!(("parse_pidamaged_iter","PiDamaged.mid") => {parse_defer,count});
+    }
+    #[test]
+    #[cfg_attr(not(feature = "lenient"), should_panic)]
+    fn pidamaged_collect() {
+        test!(("parse_pidamaged_vec","PiDamaged.mid") => {parse_collect,len});
+    }
+
+    #[test]
+    fn levels_defer() {
+        test!(("parse_levels_iter","LevelsAvicii.mid") => {parse_defer,count});
+    }
+    #[test]
+    #[cfg_attr(feature = "strict", should_panic)]
+    fn levels_collect() {
+        test!(("parse_levels_vec","LevelsAvicii.mid") => {parse_collect,len});
     }
 }

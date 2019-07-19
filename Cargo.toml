@@ -14,6 +14,20 @@ keywords = ["parser","audio"]
 categories = ["multimedia","multimedia::audio","multimedia::encoding"]
 license = "Unlicense"
 
+[features]
+
+# Do a "best-attempt" at decoding the file, even if it's obviously corrupted.
+#
+# No `ErrKind::Malformed` errors will be raised.
+# Tracks with invalid events will be dropped.
+lenient = []
+
+# Reject files that bend the standard.
+#
+# `ErrKind::Pedantic` errors will be raised.
+# The `MetaEvent::Unknown` event kind is promoted to a pedantic error.
+strict = []
+
 [dependencies]
 failure = "0.1"
 bit = "0.1"

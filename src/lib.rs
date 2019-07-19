@@ -28,20 +28,100 @@
 //! Check the documentation for `SmfBuffer` for more information on the different `parse_*`
 //! methods.
 
+macro_rules! bail {
+    ($err:expr) => {{
+        return Err($err.into());
+    }};
+}
+macro_rules! ensure {
+    ($cond:expr, $err:expr) => {{
+        if !$cond {
+            bail!($err)
+        }
+    }};
+}
+
 /// All of the errors this crate produces.
 mod error {
-    pub type Error = failure::Error;
-    pub type Result<T> = std::result::Result<T, Error>;
+    use failure::{Backtrace, Context, Fail};
+    use std::fmt;
+
+    #[derive(Debug)]
+    pub struct Error {
+        inner: Context<ErrKind>,
+    }
+    impl Fail for Error {
+        fn cause(&self) -> Option<&Fail> {
+            self.inner.cause()
+        }
+
+        fn backtrace(&self) -> Option<&Backtrace> {
+            self.inner.backtrace()
+        }
+    }
+    impl fmt::Display for Error {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fmt::Display::fmt(&self.inner, f)
+        }
+    }
+
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, Fail)]
+    #[fail(display = "{}", _0)]
+    pub enum ErrKind {
+        /// A fatal error occurred while parsing the smf file.
+        /// This usually means the file is a different type of file than expected (not an SMF).
+        #[fail(display = "invalid smf file: {}", _0)]
+        Invalid(&'static str),
+
+        /// A non-fatal error occurred while parsing, which usually indicates file corruption.
+        ///
+        /// This kind of error does not occur with the `lenient` feature enabled.
+        /// Note that enabling the `lenient` feature might cause tracks and events to be lost if
+        /// they fail to parse.
+        #[fail(display = "malformed smf file: {}", _0)]
+        Malformed(&'static str),
+
+        /// An non-fatal error which usually does not indicate file corruption, only sloppy
+        /// standards-compliance.
+        ///
+        /// This kind of error is only produced with the `strict` feature enabled.
+        #[fail(display = "uncompliant smf file: {}", _0)]
+        Pedantic(&'static str),
+    }
+
+    pub fn err_invalid(msg: &'static str) -> ErrKind {
+        ErrKind::Invalid(msg)
+    }
+    pub fn err_malformed(msg: &'static str) -> ErrKind {
+        ErrKind::Malformed(msg)
+    }
+    pub fn err_pedantic(msg: &'static str) -> ErrKind {
+        ErrKind::Pedantic(msg)
+    }
+
+    impl From<Context<ErrKind>> for Error {
+        fn from(inner: Context<ErrKind>) -> Error {
+            Error { inner }
+        }
+    }
+    impl From<ErrKind> for Error {
+        fn from(kind: ErrKind) -> Error {
+            Context::new(kind).into()
+        }
+    }
+
+    pub type Result<T> = StdResult<T, Error>;
+    pub use std::result::Result as StdResult;
 }
 
 mod prelude {
     pub use crate::{
-        error::*,
+        error::{err_invalid, err_malformed, err_pedantic, ErrKind, Result, StdResult},
         primitive::{u14, u15, u2, u24, u28, u4, u7, IntRead, IntReadBottom7, SplitChecked},
     };
     pub use bit::BitIndex;
-    pub use failure::{bail, ensure, err_msg, ResultExt};
-    pub use std::marker::PhantomData;
+    pub use failure::ResultExt;
+    pub use std::{marker::PhantomData, mem};
 }
 
 /// All sort of events and their parsing.

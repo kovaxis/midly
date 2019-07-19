@@ -18,13 +18,13 @@ impl<'a> SplitChecked for &'a [u8] {
 /// Implemented on integer types for reading as big-endian.
 pub trait IntRead: Sized {
     /// Reads a big-endian integer.
-    fn read(data: &mut &[u8]) -> Result<Self>;
+    fn read(data: &mut &[u8]) -> StdResult<Self, ErrKind>;
 }
-/// Reads the int from u7 bytes, that is, top bit in all bytes is ignored.
+/// Reads the int from u7 bytes, that is, the top bit in all bytes is ignored.
 /// For raw reading on integer types, use `read_raw`.
 pub trait IntReadBottom7: Sized {
     /// Read an int from bytes, but only using the bottom 7 bits of each byte.
-    fn read_u7(data: &mut &[u8]) -> Result<Self>;
+    fn read_u7(data: &mut &[u8]) -> StdResult<Self, ErrKind>;
 }
 
 /// Implement simple big endian integer reads.
@@ -32,9 +32,9 @@ macro_rules! impl_read_int {
     {$( $int:ty ),*} => {
         $(
             impl IntRead for $int {
-                fn read(raw: &mut &[u8]) -> Result<$int> {
+                fn read(raw: &mut &[u8]) -> StdResult<$int, ErrKind> {
                     let bytes=raw.split_checked(::std::mem::size_of::<$int>())
-                        .ok_or(err_msg("failed to read the expected integer"))?;
+                        .ok_or(err_invalid("failed to read the expected integer"))?;
                     Ok(bytes.iter().fold(0,|mut acc,byte| {
                         acc=acc.checked_shl(8).unwrap_or(0);
                         acc|=*byte as $int;
@@ -45,32 +45,42 @@ macro_rules! impl_read_int {
         )*
     }
 }
-impl_read_int!{u8,u16,u32}
+impl_read_int! {u8,u16,u32}
 
 /// Slightly restricted integers.
 macro_rules! int_feature {
     { $name:ident ; $inner:tt : read_u7 } => {
         impl IntReadBottom7 for $name {
-            fn read_u7(raw: &mut &[u8])->Result<$name> {
+            fn read_u7(raw: &mut &[u8]) -> StdResult<$name, ErrKind> {
                 let bytes=raw.split_checked(::std::mem::size_of::<$inner>())
-                    .ok_or(err_msg("failed to read the expected integer"))?;
-                ensure!(bytes.iter().all(|byte| !byte.bit(7)),"invalid byte with top bit set");
-                Ok(
-                    Self::try_from(
-                        bytes.iter().fold(0, |mut acc,byte| {
-                            acc<<=7;
-                            acc|=*byte as $inner;
-                            acc
-                        })
-                    ).ok_or(err_msg(stringify!("expected " $name ", found " $inner)))?
-                )
+                    .ok_or(err_invalid("failed to read the expected integer"))?;
+                if !cfg!(feature = "lenient") {
+                    ensure!(bytes.iter().all(|byte| !byte.bit(7)), err_malformed("invalid byte with top bit set"));
+                }
+                let raw = bytes.iter().fold(0, |mut acc,byte| {
+                    acc<<=7;
+                    acc|=byte.bit_range(0..7) as $inner;
+                    acc
+                });
+                Ok(if cfg!(feature = "lenient") {
+                    //Ignore and truncate extra bits
+                    Self::from(raw)
+                }else{
+                    Self::try_from(raw).ok_or(err_malformed(stringify!("expected " $name ", found " $inner)))?
+                })
             }
         }
     };
     { $name:ident ; $inner:tt : read } => {
         impl IntRead for $name {
-            fn read(raw: &mut &[u8])->Result<Self> {
-                Ok(Self::try_from( $inner ::read(raw)?).ok_or(err_msg(stringify!("expected " $name ", found " $inner)))?)
+            fn read(raw: &mut &[u8]) -> StdResult<Self, ErrKind> {
+                let raw = $inner::read(raw)?;
+                if cfg!(feature = "lenient") {
+                    //Throw away extra bits
+                    Ok(Self::from(raw))
+                }else{
+                    Ok(Self::try_from(raw).ok_or(err_malformed(stringify!("expected " $name ", found " $inner)))?)
+                }
             }
         }
     };
@@ -110,8 +120,10 @@ restricted_int! {u4: u8 => 4; read}
 restricted_int! {u2: u8 => 2; read}
 restricted_int! {u24: u32 => 24;}
 impl IntRead for u24 {
-    fn read(raw: &mut &[u8]) -> Result<u24> {
-        let bytes = raw.split_checked(3).ok_or(err_msg("failed to read u24 bytes"))?;
+    fn read(raw: &mut &[u8]) -> StdResult<u24, ErrKind> {
+        let bytes = raw
+            .split_checked(3)
+            .ok_or(err_invalid("failed to read u24 bytes"))?;
         //Using lossy `from` because value is guaranteed to be 24 bits (3 bytes)
         Ok(u24::from(bytes.iter().fold(0, |mut acc, byte| {
             acc <<= 8;
@@ -126,36 +138,52 @@ restricted_int! {
     u28: u32 => 28;
 }
 impl IntReadBottom7 for u28 {
-    fn read_u7(raw: &mut &[u8]) -> Result<u28> {
+    fn read_u7(raw: &mut &[u8]) -> StdResult<u28, ErrKind> {
         let mut int: u32 = 0;
-        for byte_index in 0..4 {
-            let byte = raw
-                .split_checked(1)
-                .ok_or(err_msg("unexpected eof when reading varlen integer"))?[0];
+        for _ in 0..4 {
+            let byte = match raw.split_checked(1) {
+                Some(slice) => slice[0],
+                None => {
+                    if cfg!(feature = "lenient") {
+                        //Stay with what was read
+                        break;
+                    } else {
+                        bail!(err_malformed("unexpected eof while reading varlen int"))
+                    }
+                }
+            };
             int <<= 7;
             int |= byte.bit_range(0..7) as u32;
-            if byte.bit(7) {
-                if byte_index == 3 {
-                    bail!("varlen integer larger than 4 bytes")
-                }
-            } else {
-                break;
+            if !byte.bit(7) {
+                //Since we did at max 4 reads of 7 bits each, there MUST be at max 28 bits in this int
+                //Therefore it's safe to call lossy `from`
+                return Ok(u28::from(int));
             }
         }
-        //Since we did at max 4 reads of 7 bits each, there MUST be at max 28 bits in this int
-        //Therefore it's safe to call lossy `from`
-        Ok(u28::from(int))
+        if cfg!(feature = "lenient") {
+            //Use the 4 bytes as-is
+            Ok(u28::from(int))
+        } else {
+            Err(err_malformed("varlen integer larger than 4 bytes"))
+        }
     }
 }
 
 /// Reads a slice represented in the input as a `u28` `len` followed by `len` bytes.
 pub fn read_varlen_slice<'a>(raw: &mut &'a [u8]) -> Result<&'a [u8]> {
     let len = u28::read_u7(raw)
-        .context("failed to read varlen slice length")?
+        .context(err_invalid("failed to read varlen slice length"))?
         .as_int();
-    Ok(raw
-        .split_checked(len as usize)
-        .ok_or(err_msg("incomplete varlen slice"))?)
+    Ok(match raw.split_checked(len as usize) {
+        Some(slice) => slice,
+        None => {
+            if cfg!(feature = "lenient") {
+                mem::replace(raw, &[])
+            } else {
+                bail!(err_malformed("incomplete varlen slice"))
+            }
+        }
+    })
 }
 
 /// The different formats an SMF file can be.
@@ -172,7 +200,7 @@ impl Format {
             0 => Format::SingleTrack,
             1 => Format::Parallel,
             2 => Format::Sequential,
-            _ => bail!("invalid smf format"),
+            _ => bail!(err_invalid("invalid smf format")),
         })
     }
 }
@@ -189,13 +217,13 @@ pub enum Timing {
 }
 impl Timing {
     pub fn read(raw: &mut &[u8]) -> Result<Timing> {
-        let raw = u16::read(raw).context("unexpected eof when reading midi timing")?;
+        let raw = u16::read(raw).context(err_invalid("unexpected eof when reading midi timing"))?;
         if raw.bit(15) {
             //Timecode
             let fps = -(raw.bit_range(8..16) as i8);
             let subframe = raw.bit_range(0..8) as u8;
             Ok(Timing::Timecode(
-                Fps::from_int(fps as u8).ok_or(err_msg("invalid smpte fps"))?,
+                Fps::from_int(fps as u8).ok_or(err_invalid("invalid smpte fps"))?,
                 subframe,
             ))
         } else {
@@ -278,7 +306,7 @@ impl SmpteTime {
     pub fn read(raw: &mut &[u8]) -> Result<SmpteTime> {
         let data = raw
             .split_checked(5)
-            .ok_or(err_msg("failed to read smpte time data"))?;
+            .ok_or(err_invalid("failed to read smpte time data"))?;
         let hour = data[0];
         let (hour, fps) = (hour.bit_range(0..5), hour.bit_range(5..7));
         let fps = Fps::from_code(u2::from(fps));
@@ -287,7 +315,7 @@ impl SmpteTime {
         let frame = data[3];
         let subframe = data[4];
         Ok(SmpteTime::new(hour, minute, second, frame, subframe, fps)
-            .ok_or(err_msg("invalid smpte time"))?)
+            .ok_or(err_invalid("invalid smpte time"))?)
     }
 }
 
