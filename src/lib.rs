@@ -21,8 +21,9 @@
 //! # About lifetimes
 //!
 //! The `Smf` struct is used to store a parsed Standard Midi File (.mid and .midi files).
-//! Notice that it has a lifetime parameter, since it stores references to the raw file bytes.
-//! For this reason, the byte buffer must be created separately to the `Smf` structure:
+//! Notice that it has a lifetime parameter, since it stores references to the raw file bytes in
+//! order to avoid allocations.
+//! For this reason, the byte buffer must be created separately from the `Smf` structure:
 //!
 //! ```rust
 //! use midly::Smf;
