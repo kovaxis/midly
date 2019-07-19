@@ -8,16 +8,17 @@ First add the following line to your `Cargo.toml` file:
 midly = "0.2"
 ```
 
-Then use the `SmfBuffer` type in the root crate:
+Then use the `Smf` type in the root crate:
 
 ```
-use midly::SmfBuffer;
+use std::fs;
+use midly::Smf;
 
 // Load bytes first
-let smf = SmfBuffer::open("Pi.mid").unwrap();
+let data = fs::read("Pi.mid").unwrap();
 
 // Parse the raw bytes
-let smf = smf.parse_collect().unwrap();
+let smf = Smf::parse(&data).unwrap();
 
 // Use the information
 println!("midi file has {} tracks!", smf.tracks.len());
