@@ -27,9 +27,14 @@ impl<'a> Event<'a> {
 /// Represents the different kinds of events.
 #[derive(Copy, Clone, Debug)]
 pub enum EventKind<'a> {
+    /// A standard MIDI message bound to a channel.
     Midi { channel: u4, message: MidiMessage },
+    /// A System Exclusive message, carrying arbitrary data.
     SysEx(&'a [u8]),
+    /// An escape sequence, intended to send arbitrary data to the MIDI synthesizer.
     Escape(&'a [u8]),
+    /// A meta-message, giving extra information for correct playback, like tempo, song name,
+    /// lyrics, etc...
     Meta(MetaMessage<'a>),
 }
 impl<'a> EventKind<'a> {
@@ -91,39 +96,67 @@ impl<'a> EventKind<'a> {
 #[derive(Copy, Clone, Debug)]
 pub enum MidiMessage {
     /// Stop playing a note.
-    /// Fields are MIDI key and velocity.
-    NoteOff(u7, u7),
+    NoteOff {
+        /// The MIDI key to stop playing.
+        key: u7,
+        /// The velocity with which to stop playing it.
+        vel: u7
+    },
     /// Start playing a note.
-    /// Fields are MIDI key and velocity.
-    NoteOn(u7, u7),
+    NoteOn {
+        /// The key to start playing.
+        key: u7,
+        /// The velocity (strength) with which to press it.
+        vel: u7,
+    },
     /// Modify the velocity of a note after it has been played.
-    /// Fields are MIDI key and velocity.
-    Aftertouch(u7, u7),
+    Aftertouch {
+        /// The key for which to modify its velocity.
+        key: u7,
+        /// The new velocity for the key.
+        vel: u7,
+    },
     /// Modify the value of a MIDI controller.
-    /// Fields are the controller to modify and the value to set it to.
-    Controller(u7, u7),
+    Controller {
+        /// The controller to modify.
+        ///
+        /// See the MIDI spec for the meaning of each index.
+        controller: u7,
+        /// The value to set it to.
+        value: u7,
+    },
     /// Change the program (also known as instrument) for a channel.
-    /// The field is the program to set it to.
-    ProgramChange(u7),
+    ProgramChange {
+        /// The new program (instrument) to use for the channel.
+        program: u7,
+    },
     /// Change the note velocity of a whole channel at once, without starting new notes.
-    ChannelAftertouch(u7),
+    ChannelAftertouch {
+        /// The new velocity for the notes currently playing in the channel.
+        vel: u7,
+    },
     /// Set the pitch bend value.
-    /// The field is the value to set it to.
-    /// A value of `0x2000` indicates no bend.
-    PitchBend(u14),
+    PitchBend {
+        /// The new pitch-bend value.
+        ///
+        /// A value of `0x0000` indicates full bend downwards.
+        /// A value of `0x2000` indicates no bend.
+        /// A value of `0x3FFF` indicates full bend upwards.
+        bend: u14,
+    },
 }
 impl MidiMessage {
     /// Receives a slice pointing to midi args (not including status byte)
     /// Status byte is given separately to reuse running status
     fn read(raw: &mut &[u8], status: u8) -> Result<MidiMessage> {
         Ok(match status.bit_range(4..8) {
-            0x8 => MidiMessage::NoteOff(u7::read(raw)?, u7::read(raw)?),
-            0x9 => MidiMessage::NoteOn(u7::read(raw)?, u7::read(raw)?),
-            0xA => MidiMessage::Aftertouch(u7::read(raw)?, u7::read(raw)?),
-            0xB => MidiMessage::Controller(u7::read(raw)?, u7::read(raw)?),
-            0xC => MidiMessage::ProgramChange(u7::read(raw)?),
-            0xD => MidiMessage::ChannelAftertouch(u7::read(raw)?),
-            0xE => MidiMessage::PitchBend(u14::read_u7(raw)?),
+            0x8 => MidiMessage::NoteOff{key: u7::read(raw)?, vel:u7::read(raw)?},
+            0x9 => MidiMessage::NoteOn{key: u7::read(raw)?, vel: u7::read(raw)?},
+            0xA => MidiMessage::Aftertouch{key: u7::read(raw)?, vel: u7::read(raw)?},
+            0xB => MidiMessage::Controller{controller: u7::read(raw)?, value: u7::read(raw)?},
+            0xC => MidiMessage::ProgramChange{program: u7::read(raw)?},
+            0xD => MidiMessage::ChannelAftertouch{vel: u7::read(raw)?},
+            0xE => MidiMessage::PitchBend{bend: u14::read_u7(raw)?},
             _ => bail!(err_invalid("invalid midi message status")),
         })
     }
