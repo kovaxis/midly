@@ -87,7 +87,7 @@ impl<'a> EventKind<'a> {
         //Delegate further parsing depending on status
         let kind = match status {
             0x80...0xEF => {
-                let channel = u4::from(status.bit_range(0..4));
+                let channel = u4::from(bit_range(status, 0..4));
                 EventKind::Midi {
                     channel,
                     message: MidiMessage::read(raw, status)
@@ -175,7 +175,7 @@ impl MidiMessage {
     /// Receives a slice pointing to midi args (not including status byte)
     /// Status byte is given separately to reuse running status
     fn read(raw: &mut &[u8], status: u8) -> Result<MidiMessage> {
-        Ok(match status.bit_range(4..8) {
+        Ok(match bit_range(status, 4..8) {
             0x8 => MidiMessage::NoteOff{key: u7::read(raw)?, vel:u7::read(raw)?},
             0x9 => MidiMessage::NoteOn{key: u7::read(raw)?, vel: u7::read(raw)?},
             0xA => MidiMessage::Aftertouch{key: u7::read(raw)?, vel: u7::read(raw)?},

@@ -94,6 +94,13 @@
 //! `midly` provides partial support for parsing these MIDI messages, through the
 //! [`EventKind::parse`](enum.EventKind.html#method.parse) method, however most System Common
 //! messages are unsupported.
+//!
+//! This crate is `no_std` + `alloc`!
+
+#![forbid(unsafe_code)]
+#![cfg_attr(not(test), no_std)]
+
+extern crate alloc;
 
 macro_rules! bail {
     ($err:expr) => {{
@@ -111,7 +118,7 @@ macro_rules! ensure {
 /// All of the errors this crate produces.
 mod error {
     use failure::{Fail};
-    use std::fmt;
+    use core::fmt;
 
     #[cfg(debug_assertions)]
     mod error_impl {
@@ -266,7 +273,7 @@ mod error {
     }
 
     pub type Result<T> = StdResult<T, Error>;
-    pub use std::result::Result as StdResult;
+    pub use core::result::Result as StdResult;
 }
 
 mod prelude {
@@ -274,8 +281,13 @@ mod prelude {
         error::{err_invalid, err_malformed, err_pedantic, ErrorKind, Result, StdResult, ResultExt},
         primitive::{u14, u15, u2, u24, u28, u4, u7, IntRead, IntReadBottom7, SplitChecked},
     };
-    pub use bit::BitIndex;
-    pub use std::{marker::PhantomData, mem};
+    pub use core::{marker::PhantomData, mem, ops};
+    pub use alloc::vec::Vec;
+    
+    pub fn bit_range<T>(val: T, range: ops::Range<u32>) -> T where T: From<u8>+ops::Shr<u32, Output=T>+ops::Shl<u32, Output=T>+ops::Not<Output=T>+ops::BitAnd<Output=T> {
+        let mask = !((!T::from(0))<<(range.end-range.start));
+        (val>>range.start) & mask
+    }
 }
 
 /// All sort of events and their parsing.

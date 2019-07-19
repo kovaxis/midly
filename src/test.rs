@@ -5,7 +5,7 @@ use std::{time::Instant, fs};
 /// Open and read the content of a file.
 macro_rules! open {
     {$name:ident : $file:expr} => {
-        let $name = fs::read(format!("test-asset/{}", $file)).unwrap();
+        let $name = fs::read(concat!("test-asset/", $file)).unwrap();
     };
 }
 
