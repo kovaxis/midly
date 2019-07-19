@@ -1,32 +1,99 @@
-//! # Examples
+//! # Overview
+//!
+//! `midly` is a Standard Midi File (SMF) parser focused on speed and flexibility, parsing
+//! multi-MB files in tenths of a second.
+//!
+//! Usage is as simple as:
+//!
+//! ```rust
+//! use midly::Smf;
+//!
+//! let smf = Smf::parse(include_bytes!("../test-asset/Clementi.mid")).unwrap();
+//!
+//! for (i, track) in smf.tracks.iter().enumerate() {
+//!     println!("track {} has {} events", i, track.len());
+//! }
+//! ```
+//!
+//! The [`Smf`](struct.Smf.html) struct is the main type in the crate.
+//! See its documentation for the structure of parsed MIDI files.
+//!
+//! # About lifetimes
 //!
 //! The `Smf` struct is used to store a parsed Standard Midi File (.mid and .midi files).
 //! Notice that it has a lifetime parameter, since it stores references to the raw file bytes.
 //! For this reason, the byte buffer must be created separately to the `Smf` structure:
 //!
 //! ```rust
-//! use midly::{Smf,Event};
-//! //Load bytes into a buffer
-//! let bytes=include_bytes!("../test-asset/Clementi.mid");
-//! //Parse file in a separate step
-//! let smf: Smf<Vec<Event>>=Smf::read(bytes).unwrap();
+//! use midly::Smf;
+//!
+//! // Load bytes into a buffer
+//! let bytes = include_bytes!("../test-asset/Clementi.mid");
+//!
+//! // Parse file in a separate step
+//! let smf = Smf::parse(bytes).unwrap();
 //! ```
 //!
-//! However, preloading into a buffer and dealing with generics can be tedious.
-//! For this purposes, use `SmfBuffer` instead, which provides several `parse_*` non-generic
-//! methods.
+//! When loading a file something similar has to be done:
 //!
 //! ```rust
-//! use midly::SmfBuffer;
-//! //Load bytes into a buffer
-//! let smf=SmfBuffer::open("test-asset/Clementi.mid").unwrap();
+//! use std::fs;
+//! use midly::Smf;
+//!
+//! // Load bytes into a buffer
+//! let bytes = fs::read("test-asset/Clementi.mid").unwrap();
+//!
 //! //Parse bytes in a separate step
-//! //When in doubt, use parse_collect!
-//! let smf=smf.parse_collect().unwrap();
+//! let smf = Smf::parse(&bytes).unwrap();
 //! ```
 //!
-//! Check the documentation for `SmfBuffer` for more information on the different `parse_*`
-//! methods.
+//! # About features
+//!
+//! The mode in which the crate works is configurable through the use of cargo features.
+//! Three optional features are available: `multithread`, `lenient` and `strict`.
+//! Of these only `multithread` is enabled by default.
+//!
+//! - The `multithread` feature
+//!
+//!   With this feature enabled the `Smf::parse` and `Smf::parse_with_bytemap` methods will use
+//!   multiple threads to parse midi tracks in parallel.
+//!   This usually improves performance, but requires the `rayon` dependency.
+//!
+//! - The `lenient` feature
+//!
+//!   By default `midly` will reject obviously corrupted files, throwing an error with kind
+//!   `ErrorKind::Malformed`.
+//!   With the `lenient` feature enabled the parser will do a "best-effort" attempt at parsing the
+//!   file, and will suppress any of these errors.
+//!   Note that even though the file might parse successfully, entire tracks might be lost.
+//!
+//! - The `strict` feature
+//!
+//!   By default `midly` gives some leeway for uncompliant MIDI files, through the
+//!   `MetaMessage::Unknown` event variant.
+//!   Enabling the `strict` feature will promote these malformed events to an error of kind
+//!   `ErrorKind::Pedantic` instead.
+//!
+//! # About generics
+//!
+//! The `Smf` type is generic over `T`, a type implementing [`TrackRepr`](trait.TrackRepr.html).
+//! This `T` indicates how should each track be represented in memory.
+//!
+//! The default is `Vec<Event>`, produced by the `Smf::parse` method, but there are also two
+//! other methods: [`Smf::parse_with_bytemap`](struct.Smf.html#method.parse_with_bytemap) and
+//! [`Smf::parse_lazy`](struct.Smf.html#method.parse_lazy).
+//! Check the documentation for these methods for more information about each.
+//!
+//! # Parsing raw MIDI streams
+//!
+//! The MIDI standard is independent from the Standard Midi File standard, even though the latter
+//! depends on the former.
+//! This means that raw, non-SMF, MIDI streams exist, for example those generating by MIDI
+//! keyboards.
+//!
+//! `midly` provides partial support for parsing these MIDI messages, through the
+//! [`EventKind::parse`](enum.EventKind.html#method.parse) method, however most System Common
+//! messages are unsupported.
 
 macro_rules! bail {
     ($err:expr) => {{
@@ -226,7 +293,7 @@ pub use crate::{
     error::{Error, ErrorKind},
     event::{Event, EventKind, MetaMessage, MidiMessage},
     primitive::{Format, Fps, SmpteTime, Timing},
-    smf::{Header, Smf, SmfBuffer, TrackIter},
+    smf::{Header, Smf, TrackRepr, TrackIter},
 };
 
 /// Special-length integers used by the MIDI standard.

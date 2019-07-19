@@ -2,18 +2,26 @@
 
 ## Getting started
 
-Usage with `crates.io` is recommended.
 First add the following line to your `Cargo.toml` file:
 
 ```
-midly = "0.1"
+midly = "0.2"
 ```
 
-And then the following line to your crate root:
+Then use the `SmfBuffer` type in the root crate:
 
 ```
-extern crate midly;
+use midly::SmfBuffer;
+
+// Load bytes first
+let smf = SmfBuffer::open("Pi.mid").unwrap();
+
+// Parse the raw bytes
+let smf = smf.parse_collect().unwrap();
+
+// Use the information
+println!("midi file has {} tracks!", smf.tracks.len());
 ```
 
 Most types to be imported are on the crate root and are documented in-place.
-Check the crate documentation for examples and usage!
+Check the crate documentation for more information.

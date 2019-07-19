@@ -3,78 +3,49 @@ use crate::{
     prelude::*,
     primitive::{Format, Timing},
 };
-use rayon;
-use std::{
-    fs::File,
-    io::{self, Read},
-    path::Path,
-};
-
-/// "Easy" way to do file loading.
-#[derive(Clone, Debug)]
-pub struct SmfBuffer(Box<[u8]>);
-impl SmfBuffer {
-    /// Creates an SmfBuffer from a normal buffer.
-    pub fn new<B: Into<Box<[u8]>>>(buf: B) -> SmfBuffer {
-        SmfBuffer(buf.into())
-    }
-
-    /// Opens and reads a file, storing it in memory but not parsing it.
-    pub fn open<P: AsRef<Path>>(path: P) -> io::Result<SmfBuffer> {
-        let mut file = File::open(path)?;
-        let mut buffer =
-            Vec::with_capacity((file.metadata().map(|meta| meta.len()).unwrap_or(0) + 1) as usize);
-        file.read_to_end(&mut buffer)?;
-        Ok(SmfBuffer::new(buffer))
-    }
-
-    /// Peek into the inner buffer.
-    pub fn inner(&self) -> &[u8] {
-        &self.0
-    }
-
-    /// Get the inner buffer out.
-    pub fn into_inner(self) -> Box<[u8]> {
-        self.0
-    }
-
-    /// Borrows the full in-memory buffer and parses an SMF generically.
-    /// Due to generics, the `parse_*` functions are preferred.
-    /// In doubt, use `parse_collect`, which automatically does multithreaded parsing and stores
-    /// events in an easy-to-use `Vec`.
-    pub fn parse<'a, T: TrackRepr<'a>>(&'a self) -> Result<Smf<'a, T>> {
-        Smf::read(&self.0)
-    }
-
-    /// Parses an SMF but not its events, deferring it for later.
-    /// The iterator will parse lazily, meaning it will do no allocations. This means performance
-    /// gains if you know what you're doing and implement multithreading yourself.
-    /// Yields both underlying bytes and events.
-    pub fn parse_defer<'a>(&'a self) -> Result<Smf<TrackIter<'a>>> {
-        self.parse()
-    }
-
-    /// Parses an SMF, collecting into a `Vec` only events, discarding raw bytes to save memory.
-    pub fn parse_collect<'a>(&'a self) -> Result<Smf<Vec<Event<'a>>>> {
-        self.parse()
-    }
-
-    /// Parses an SMF, collecting events and their underlying bytes into a `Vec`.
-    pub fn parse_collect_bytes<'a>(&'a self) -> Result<Smf<Vec<(&'a [u8], Event<'a>)>>> {
-        self.parse()
-    }
-}
 
 /// Represents a Standard Midi File (.mid and .midi files).
 /// Yields `TrackRepr` on a Vec, allowing for customization on what is stored in a track.
 /// References an outside byte array.
 #[derive(Clone, Debug)]
-pub struct Smf<'a, T: TrackRepr<'a>> {
+pub struct Smf<'a, T: TrackRepr<'a> = Vec<Event<'a>>> {
     pub header: Header,
     pub tracks: Vec<T>,
     _lifetime: PhantomData<&'a ()>,
 }
+impl Smf<'_> {
+    /// Preferred method to parse raw bytes into an `Smf` struct.
+    ///
+    /// This method parses the events of each track immediately into a `Vec<Event>`.
+    ///
+    /// If you wish to defer the parsing for later or want the raw source bytes for every event,
+    /// check the other `parse_*` methods.
+    pub fn parse(raw: &[u8]) -> Result<Smf> {
+        Smf::read(raw)
+    }
+    
+    /// Parses tracks into events and additionally provides the *source bytes* for each event.
+    /// This can be used to forward the raw event bytes to a MIDI device/synthesizer.
+    ///
+    /// Same with the `parse` method, this method parses the events immediately into a
+    /// `Vec<(&[u8], Event)>`.
+    pub fn parse_with_bytemap(raw: &[u8]) -> Result<Smf<Vec<(&[u8], Event)>>> {
+        Smf::read(raw)
+    }
+    
+    /// Does *not* parse events, only recognizes the file and splits up the tracks, providing an
+    /// iterator that lazily parses events.
+    ///
+    /// This method can be used to save memory or processing time, but it is usually not worth it
+    /// except in very niche cases.
+    /// Because the other `parse` methods use multiple threads to parse tracks, the use of this
+    /// method is discouraged as it carries a performance penalty unless done correctly.
+    pub fn parse_lazy(raw: &[u8]) -> Result<Smf<TrackIter>> {
+        Smf::read(raw)
+    }
+}
 impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
+    /// Create a new SMF from its raw parts.
     pub fn new(header: Header, tracks: Vec<T>) -> Result<Smf<'a, T>> {
         if !cfg!(feature = "lenient") {
             ensure!(
@@ -88,6 +59,9 @@ impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
             _lifetime: PhantomData,
         })
     }
+    /// Generic `read` method.
+    ///
+    /// Prefer the `parse` methods instead, which handle generics for you.
     pub fn read(raw: &'a [u8]) -> Result<Smf<'a, T>> {
         let mut chunks = ChunkIter::read(raw);
         let header = match chunks.next() {
@@ -97,36 +71,7 @@ impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
             },
             None => Err(err_invalid("empty file")),
         }?;
-        let mut tracks: Vec<Option<Result<_>>> = Vec::with_capacity(header.track_count as usize);
-        tracks.extend((0..header.track_count).map(|_| None));
-        rayon::scope(|s| {
-            for (chunk_parse_result, track) in chunks.zip(tracks.iter_mut()) {
-                s.spawn(move |_| {
-                    *track = match chunk_parse_result {
-                        Ok(Chunk::Track(track)) => Some(T::read(track)),
-                        //Read another header (?)
-                        Ok(Chunk::Header(_)) => if cfg!(feature = "lenient") {
-                            //Ignore duplicate header
-                            None
-                        }else{
-                            Some(Err(err_malformed("found duplicate header").into()))
-                        },
-                        //Failed to read chunk
-                        Err(err) => if cfg!(feature = "lenient") {
-                            //Ignore invalid chunk
-                            None
-                        }else{
-                            Some(Err(err).context(err_malformed("invalid chunk")).map_err(|err| err.into()))
-                        },
-                    };
-                });
-            }
-        });
-        let tracks = tracks
-            .into_iter()
-            .filter_map(|opt| opt)
-            .collect::<Result<Vec<T>>>()?;
-        
+        let tracks = chunks.parse_as_tracks(header)?;
         Ok(Smf::new(header, tracks)?)
     }
 }
@@ -139,6 +84,32 @@ struct ChunkIter<'a> {
 impl<'a> ChunkIter<'a> {
     fn read(raw: &'a [u8]) -> ChunkIter {
         ChunkIter { raw }
+    }
+
+    /// Interpret the remaining chunks as tracks.
+    fn parse_as_tracks<T: TrackRepr<'a>>(self, header: Header) -> Result<Vec<T>> {
+        //Attempt to use multiple threads if enabled
+        #[cfg(feature = "multithread")]
+        {
+            if T::USE_MULTITHREADING {
+                use rayon::prelude::*;
+                
+                let mut chunk_vec = Vec::with_capacity(header.track_count as usize);
+                chunk_vec.extend(self);
+                return chunk_vec
+                    .into_par_iter()
+                    .filter_map(Chunk::parse_into_track)
+                    .collect::<Result<Vec<T>>>();
+            }
+        }
+        //Fall back to single-threaded
+        let mut tracks = Vec::with_capacity(header.track_count as usize);
+        for chunk_result in self {
+            if let Some(track) = Chunk::parse_into_track(chunk_result) {
+                tracks.push(track?);
+            }
+        }
+        Ok(tracks)
     }
 }
 impl<'a> Iterator for ChunkIter<'a> {
@@ -197,6 +168,37 @@ impl<'a> Chunk<'a> {
             }
         }
     }
+
+    /// Interpret the chunk as a track.
+    fn parse_into_track<T: TrackRepr<'a>>(
+        chunk_parse_result: Result<Chunk<'a>>,
+    ) -> Option<Result<T>> {
+        match chunk_parse_result {
+            Ok(Chunk::Track(track)) => Some(T::read(track)),
+            //Read another header (?)
+            Ok(Chunk::Header(_)) => {
+                if cfg!(feature = "lenient") {
+                    //Ignore duplicate header
+                    None
+                } else {
+                    Some(Err(err_malformed("found duplicate header").into()))
+                }
+            }
+            //Failed to read chunk
+            Err(err) => {
+                if cfg!(feature = "lenient") {
+                    //Ignore invalid chunk
+                    None
+                } else {
+                    Some(
+                        Err(err)
+                            .context(err_malformed("invalid chunk"))
+                            .map_err(|err| err.into()),
+                    )
+                }
+            }
+        }
+    }
 }
 
 /// A MIDI file header.
@@ -232,20 +234,22 @@ impl Header {
 }
 
 /// Allows for customization on how tracks are stored in memory.
-/// Check implementors for options.
 pub trait TrackRepr<'a>: Sized + Send {
+    const USE_MULTITHREADING: bool;
     fn read(data: &'a [u8]) -> Result<Self>;
 }
 
 /// Allows deferring track parsing for later, on a per-event basis.
+///
 /// This is the best option when traversing a track once or for saving memory.
-/// This `struct` is very light, it can be copied freely.
+/// This `struct` is very light, so it can be copied freely.
 #[derive(Clone, Debug)]
 pub struct TrackIter<'a> {
     raw: &'a [u8],
     running_status: Option<u8>,
 }
 impl<'a> TrackRepr<'a> for TrackIter<'a> {
+    const USE_MULTITHREADING: bool = false;
     fn read(raw: &'a [u8]) -> Result<TrackIter<'a>> {
         Ok(TrackIter {
             raw,
@@ -264,8 +268,8 @@ impl<'a> Iterator for TrackIter<'a> {
                     //Ignore errors
                     Err(_err) => None,
                 }
-            }else{
-                Some(read_result)
+            } else {
+                Some(read_result.context(err_malformed("malformed event")))
             }
         } else {
             None
@@ -276,6 +280,7 @@ impl<'a> Iterator for TrackIter<'a> {
 /// Allows processing the entire track at once and storing the parsed events into a vector.
 /// Parses events only once, but allocates a "large" amount of memory.
 impl<'a> TrackRepr<'a> for Vec<(&'a [u8], Event<'a>)> {
+    const USE_MULTITHREADING: bool = true;
     fn read(raw: &'a [u8]) -> Result<Self> {
         TrackIter::read(raw)?.collect::<Result<Vec<_>>>()
     }
@@ -283,6 +288,7 @@ impl<'a> TrackRepr<'a> for Vec<(&'a [u8], Event<'a>)> {
 /// Similar to `Vec<(&[u8],Event)>`, but throws away the bytes associated with each event to save
 /// memory.
 impl<'a> TrackRepr<'a> for Vec<Event<'a>> {
+    const USE_MULTITHREADING: bool = true;
     fn read(raw: &'a [u8]) -> Result<Self> {
         TrackIter::read(raw)?
             .map(|res| res.map(|(_, ev)| ev))

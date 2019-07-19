@@ -38,7 +38,33 @@ pub enum EventKind<'a> {
     Meta(MetaMessage<'a>),
 }
 impl<'a> EventKind<'a> {
-    pub fn read(
+    /// Reads a single event from the given stream.
+    /// Use this method when reading raw MIDI messages from a stream.
+    ///
+    /// Returns the event read and the raw bytes that make up the event, taken directly from the
+    /// source bytes.
+    ///
+    /// The running status byte is used to fill in any missing message status (a process known
+    /// as "running status").
+    /// This running status should be conserved across calls to `EventKind::parse`, and should be
+    /// unique per-midi-stream.
+    /// Initially it should be set to `None`.
+    ///
+    /// This method takes a *mutable reference* to a byteslice and a running status byte.
+    /// In case of success the byteslice is advanced to the next event, and the running status
+    /// might be changed to a new status.
+    /// In case of error no changes are made to these values.
+    pub fn parse(raw: &mut &'a [u8], running_status: &mut Option<u8>) -> Result<(&'a [u8], EventKind<'a>)> {
+        let (old_raw, old_rs) = (*raw, *running_status);
+        let maybe_ev = Self::read(raw, running_status);
+        if let Err(_) = maybe_ev {
+            *raw = old_raw;
+            *running_status = old_rs;
+        }
+        maybe_ev
+    }
+    
+    fn read(
         raw: &mut &'a [u8],
         running_status: &mut Option<u8>,
     ) -> Result<(&'a [u8], EventKind<'a>)> {
@@ -92,7 +118,7 @@ impl<'a> EventKind<'a> {
 ///
 /// If reading a MIDI message from some stream, use `EventKind::read` instead and discard non-midi
 /// events.
-/// This way running status is easily handled.
+/// This is the correct way to handle running status.
 #[derive(Copy, Clone, Debug)]
 pub enum MidiMessage {
     /// Stop playing a note.
