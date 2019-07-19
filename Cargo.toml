@@ -18,13 +18,13 @@ license = "Unlicense"
 
 # Do a "best-attempt" at decoding the file, even if it's obviously corrupted.
 #
-# No `ErrKind::Malformed` errors will be raised.
+# No `ErrorKind::Malformed` errors will be raised.
 # Tracks with invalid events will be dropped.
 lenient = []
 
 # Reject files that bend the standard.
 #
-# `ErrKind::Pedantic` errors will be raised.
+# `ErrorKind::Pedantic` errors will be raised.
 # The `MetaEvent::Unknown` event kind is promoted to a pedantic error.
 strict = []
 

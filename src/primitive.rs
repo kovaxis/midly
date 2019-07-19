@@ -18,13 +18,13 @@ impl<'a> SplitChecked for &'a [u8] {
 /// Implemented on integer types for reading as big-endian.
 pub trait IntRead: Sized {
     /// Reads a big-endian integer.
-    fn read(data: &mut &[u8]) -> StdResult<Self, ErrKind>;
+    fn read(data: &mut &[u8]) -> StdResult<Self, ErrorKind>;
 }
 /// Reads the int from u7 bytes, that is, the top bit in all bytes is ignored.
 /// For raw reading on integer types, use `read_raw`.
 pub trait IntReadBottom7: Sized {
     /// Read an int from bytes, but only using the bottom 7 bits of each byte.
-    fn read_u7(data: &mut &[u8]) -> StdResult<Self, ErrKind>;
+    fn read_u7(data: &mut &[u8]) -> StdResult<Self, ErrorKind>;
 }
 
 /// Implement simple big endian integer reads.
@@ -32,7 +32,7 @@ macro_rules! impl_read_int {
     {$( $int:ty ),*} => {
         $(
             impl IntRead for $int {
-                fn read(raw: &mut &[u8]) -> StdResult<$int, ErrKind> {
+                fn read(raw: &mut &[u8]) -> StdResult<$int, ErrorKind> {
                     let bytes=raw.split_checked(::std::mem::size_of::<$int>())
                         .ok_or(err_invalid("failed to read the expected integer"))?;
                     Ok(bytes.iter().fold(0,|mut acc,byte| {
@@ -51,7 +51,7 @@ impl_read_int! {u8,u16,u32}
 macro_rules! int_feature {
     { $name:ident ; $inner:tt : read_u7 } => {
         impl IntReadBottom7 for $name {
-            fn read_u7(raw: &mut &[u8]) -> StdResult<$name, ErrKind> {
+            fn read_u7(raw: &mut &[u8]) -> StdResult<$name, ErrorKind> {
                 let bytes=raw.split_checked(::std::mem::size_of::<$inner>())
                     .ok_or(err_invalid("failed to read the expected integer"))?;
                 if !cfg!(feature = "lenient") {
@@ -73,7 +73,7 @@ macro_rules! int_feature {
     };
     { $name:ident ; $inner:tt : read } => {
         impl IntRead for $name {
-            fn read(raw: &mut &[u8]) -> StdResult<Self, ErrKind> {
+            fn read(raw: &mut &[u8]) -> StdResult<Self, ErrorKind> {
                 let raw = $inner::read(raw)?;
                 if cfg!(feature = "lenient") {
                     //Throw away extra bits
@@ -120,7 +120,7 @@ restricted_int! {u4: u8 => 4; read}
 restricted_int! {u2: u8 => 2; read}
 restricted_int! {u24: u32 => 24;}
 impl IntRead for u24 {
-    fn read(raw: &mut &[u8]) -> StdResult<u24, ErrKind> {
+    fn read(raw: &mut &[u8]) -> StdResult<u24, ErrorKind> {
         let bytes = raw
             .split_checked(3)
             .ok_or(err_invalid("failed to read u24 bytes"))?;
@@ -138,7 +138,7 @@ restricted_int! {
     u28: u32 => 28;
 }
 impl IntReadBottom7 for u28 {
-    fn read_u7(raw: &mut &[u8]) -> StdResult<u28, ErrKind> {
+    fn read_u7(raw: &mut &[u8]) -> StdResult<u28, ErrorKind> {
         let mut int: u32 = 0;
         for _ in 0..4 {
             let byte = match raw.split_checked(1) {
