@@ -1,6 +1,6 @@
 use crate::Smf;
 use failure::Fail;
-use std::{time::Instant, fs};
+use std::{fs, time::Instant};
 
 /// Open and read the content of a file.
 macro_rules! open {
@@ -62,7 +62,7 @@ mod parse {
     fn pi_collect() {
         test!(("parse_pi_vec","Pi.mid") => {parse,len});
     }
-    
+
     #[test]
     #[cfg_attr(not(feature = "lenient"), should_panic)]
     fn pidamaged_defer() {

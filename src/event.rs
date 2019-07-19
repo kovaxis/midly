@@ -54,7 +54,10 @@ impl<'a> EventKind<'a> {
     /// In case of success the byteslice is advanced to the next event, and the running status
     /// might be changed to a new status.
     /// In case of error no changes are made to these values.
-    pub fn parse(raw: &mut &'a [u8], running_status: &mut Option<u8>) -> Result<(&'a [u8], EventKind<'a>)> {
+    pub fn parse(
+        raw: &mut &'a [u8],
+        running_status: &mut Option<u8>,
+    ) -> Result<(&'a [u8], EventKind<'a>)> {
         let (old_raw, old_rs) = (*raw, *running_status);
         let maybe_ev = Self::read(raw, running_status);
         if let Err(_) = maybe_ev {
@@ -63,7 +66,7 @@ impl<'a> EventKind<'a> {
         }
         maybe_ev
     }
-    
+
     fn read(
         raw: &mut &'a [u8],
         running_status: &mut Option<u8>,
@@ -126,7 +129,7 @@ pub enum MidiMessage {
         /// The MIDI key to stop playing.
         key: u7,
         /// The velocity with which to stop playing it.
-        vel: u7
+        vel: u7,
     },
     /// Start playing a note.
     NoteOn {
@@ -176,13 +179,31 @@ impl MidiMessage {
     /// Status byte is given separately to reuse running status
     fn read(raw: &mut &[u8], status: u8) -> Result<MidiMessage> {
         Ok(match bit_range(status, 4..8) {
-            0x8 => MidiMessage::NoteOff{key: u7::read(raw)?, vel:u7::read(raw)?},
-            0x9 => MidiMessage::NoteOn{key: u7::read(raw)?, vel: u7::read(raw)?},
-            0xA => MidiMessage::Aftertouch{key: u7::read(raw)?, vel: u7::read(raw)?},
-            0xB => MidiMessage::Controller{controller: u7::read(raw)?, value: u7::read(raw)?},
-            0xC => MidiMessage::ProgramChange{program: u7::read(raw)?},
-            0xD => MidiMessage::ChannelAftertouch{vel: u7::read(raw)?},
-            0xE => MidiMessage::PitchBend{bend: u14::read_u7(raw)?},
+            0x8 => MidiMessage::NoteOff {
+                key: u7::read(raw)?,
+                vel: u7::read(raw)?,
+            },
+            0x9 => MidiMessage::NoteOn {
+                key: u7::read(raw)?,
+                vel: u7::read(raw)?,
+            },
+            0xA => MidiMessage::Aftertouch {
+                key: u7::read(raw)?,
+                vel: u7::read(raw)?,
+            },
+            0xB => MidiMessage::Controller {
+                controller: u7::read(raw)?,
+                value: u7::read(raw)?,
+            },
+            0xC => MidiMessage::ProgramChange {
+                program: u7::read(raw)?,
+            },
+            0xD => MidiMessage::ChannelAftertouch {
+                vel: u7::read(raw)?,
+            },
+            0xE => MidiMessage::PitchBend {
+                bend: u14::read_u7(raw)?,
+            },
             _ => bail!(err_invalid("invalid midi message status")),
         })
     }

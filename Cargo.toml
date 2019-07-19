@@ -7,18 +7,19 @@ include = [
   "/src/*",
   "/Cargo.toml",
 ]
-description = "A Rusty ultra-fast, safe, easy to use MIDI parsing library designed for multi-MB files"
+description = "A pure-rust fast and flexible MIDI parser library, designed for multi-MB files"
 repository = "https://github.com/negamartin/midly"
 readme = "README.md"
-keywords = ["parser","audio"]
-categories = ["multimedia","multimedia::audio","multimedia::encoding"]
+keywords = ["parser", "audio", "midi"]
+categories = ["multimedia", "multimedia::audio", "multimedia::encoding"]
 license = "Unlicense"
 
 [features]
-default = ["multithread"]
+default = ["std"]
 
-# Whether to use `rayon` to parse MIDI tracks in parallel.
-multithread = ["rayon"]
+# Whether to enable use of the standard library and multithreaded midi parsing.
+# Enabled by default.
+std = ["rayon", "failure/std"]
 
 # Do a "best-attempt" at decoding the file, even if it's obviously corrupted.
 #
@@ -33,5 +34,5 @@ lenient = []
 strict = []
 
 [dependencies]
-failure = "0.1"
+failure = { version="0.1", default-features=false, features=["derive"] }
 rayon = { version="1.1", optional=true }

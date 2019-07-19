@@ -50,14 +50,15 @@
 //! # About features
 //!
 //! The mode in which the crate works is configurable through the use of cargo features.
-//! Three optional features are available: `multithread`, `lenient` and `strict`.
-//! Of these only `multithread` is enabled by default.
+//! Three optional features are available: `std`, `lenient` and `strict`.
+//! Of these only `std` is enabled by default.
 //!
-//! - The `multithread` feature
+//! - The `std` feature
 //!
-//!   With this feature enabled the `Smf::parse` and `Smf::parse_with_bytemap` methods will use
-//!   multiple threads to parse midi tracks in parallel.
-//!   This usually improves performance, but requires the `rayon` dependency.
+//!   This feature is enabled by default, and in turn enables the `rayon` dependency along with
+//!   automatic parallelism for the `Smf::parse` and `Smf::parse_with_bytemap` functions.
+//!
+//!   Disabling this feature with `default-features = false` will make the crate `no_std + alloc`.
 //!
 //! - The `lenient` feature
 //!
@@ -94,11 +95,9 @@
 //! `midly` provides partial support for parsing these MIDI messages, through the
 //! [`EventKind::parse`](enum.EventKind.html#method.parse) method, however most System Common
 //! messages are unsupported.
-//!
-//! This crate is `no_std` + `alloc`!
 
 #![forbid(unsafe_code)]
-#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(any(test, feature = "std")), no_std)]
 
 extern crate alloc;
 
@@ -117,14 +116,14 @@ macro_rules! ensure {
 
 /// All of the errors this crate produces.
 mod error {
-    use failure::{Fail};
     use core::fmt;
+    use failure::Fail;
 
-    #[cfg(debug_assertions)]
+    #[cfg(all(debug_assertions, feature = "std"))]
     mod error_impl {
+        use super::{Error, ErrorExt, ErrorKind};
         use failure::{Backtrace, Context, Fail};
-        use super::{ErrorKind, Error, ErrorExt};
-        
+
         pub type ErrorInner = Context<ErrorKind>;
         impl ErrorExt for Error {
             fn kind(&self) -> ErrorKind {
@@ -153,12 +152,12 @@ mod error {
             }
         }
     }
-    
-    #[cfg(not(debug_assertions))]
+
+    #[cfg(not(all(debug_assertions, feature = "std")))]
     mod error_impl {
-        use failure::{Fail};
-        use super::{ErrorKind, ErrorExt, Error};
-        
+        use super::{Error, ErrorExt, ErrorKind};
+        use failure::Fail;
+
         pub type ErrorInner = ErrorKind;
         impl Fail for Error {}
         impl ErrorExt for Error {
@@ -166,9 +165,7 @@ mod error {
                 self.inner
             }
             fn chain_ctx(self, ctx: ErrorKind) -> Error {
-                Error {
-                    inner: ctx,
-                }
+                Error { inner: ctx }
             }
         }
         impl From<ErrorKind> for Error {
@@ -177,7 +174,7 @@ mod error {
             }
         }
     }
-    
+
     /// Represents an error parsing an SMF file or MIDI stream.
     ///
     /// This type wraps an `ErrorKind` and includes backtrace and error chain data in debug mode.
@@ -204,7 +201,7 @@ mod error {
             fmt::Display::fmt(&self.inner, f)
         }
     }
-    
+
     trait ErrorExt {
         fn kind(&self) -> ErrorKind;
         fn chain_ctx(self, ctx: ErrorKind) -> Error;
@@ -257,7 +254,7 @@ mod error {
     pub fn err_pedantic(msg: &'static str) -> ErrorKind {
         ErrorKind::Pedantic(msg)
     }
-    
+
     pub trait ResultExt<T> {
         fn context(self, ctx: ErrorKind) -> StdResult<T, Error>;
     }
@@ -278,15 +275,24 @@ mod error {
 
 mod prelude {
     pub use crate::{
-        error::{err_invalid, err_malformed, err_pedantic, ErrorKind, Result, StdResult, ResultExt},
+        error::{
+            err_invalid, err_malformed, err_pedantic, ErrorKind, Result, ResultExt, StdResult,
+        },
         primitive::{u14, u15, u2, u24, u28, u4, u7, IntRead, IntReadBottom7, SplitChecked},
     };
-    pub use core::{marker::PhantomData, mem, ops};
     pub use alloc::vec::Vec;
-    
-    pub fn bit_range<T>(val: T, range: ops::Range<u32>) -> T where T: From<u8>+ops::Shr<u32, Output=T>+ops::Shl<u32, Output=T>+ops::Not<Output=T>+ops::BitAnd<Output=T> {
-        let mask = !((!T::from(0))<<(range.end-range.start));
-        (val>>range.start) & mask
+    pub use core::{marker::PhantomData, mem, ops};
+
+    pub fn bit_range<T>(val: T, range: ops::Range<u32>) -> T
+    where
+        T: From<u8>
+            + ops::Shr<u32, Output = T>
+            + ops::Shl<u32, Output = T>
+            + ops::Not<Output = T>
+            + ops::BitAnd<Output = T>,
+    {
+        let mask = !((!T::from(0)) << (range.end - range.start));
+        (val >> range.start) & mask
     }
 }
 
@@ -305,7 +311,7 @@ pub use crate::{
     error::{Error, ErrorKind},
     event::{Event, EventKind, MetaMessage, MidiMessage},
     primitive::{Format, Fps, SmpteTime, Timing},
-    smf::{Header, Smf, TrackRepr, TrackIter},
+    smf::{Header, Smf, TrackIter, TrackRepr},
 };
 
 /// Special-length integers used by the MIDI standard.

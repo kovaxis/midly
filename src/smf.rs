@@ -23,7 +23,7 @@ impl Smf<'_> {
     pub fn parse(raw: &[u8]) -> Result<Smf> {
         Smf::read(raw)
     }
-    
+
     /// Parses tracks into events and additionally provides the *source bytes* for each event.
     /// This can be used to forward the raw event bytes to a MIDI device/synthesizer.
     ///
@@ -32,7 +32,7 @@ impl Smf<'_> {
     pub fn parse_with_bytemap(raw: &[u8]) -> Result<Smf<Vec<(&[u8], Event)>>> {
         Smf::read(raw)
     }
-    
+
     /// Does *not* parse events, only recognizes the file and splits up the tracks, providing an
     /// iterator that lazily parses events.
     ///
@@ -88,12 +88,12 @@ impl<'a> ChunkIter<'a> {
 
     /// Interpret the remaining chunks as tracks.
     fn parse_as_tracks<T: TrackRepr<'a>>(self, header: Header) -> Result<Vec<T>> {
-        //Attempt to use multiple threads if enabled
-        #[cfg(feature = "multithread")]
+        //Attempt to use multiple threads if possible and enabled
+        #[cfg(feature = "std")]
         {
             if T::USE_MULTITHREADING {
                 use rayon::prelude::*;
-                
+
                 let mut chunk_vec = Vec::with_capacity(header.track_count as usize);
                 chunk_vec.extend(self);
                 return chunk_vec

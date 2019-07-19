@@ -155,7 +155,7 @@ impl IntReadBottom7 for u28 {
             };
             int <<= 7;
             int |= bit_range(byte, 0..7) as u32;
-            if bit_range(byte, 7..8)==0 {
+            if bit_range(byte, 7..8) == 0 {
                 //Since we did at max 4 reads of 7 bits each, there MUST be at max 28 bits in this int
                 //Therefore it's safe to call lossy `from`
                 return Ok(u28::from(int));
@@ -219,7 +219,7 @@ pub enum Timing {
 impl Timing {
     pub fn read(raw: &mut &[u8]) -> Result<Timing> {
         let raw = u16::read(raw).context(err_invalid("unexpected eof when reading midi timing"))?;
-        if bit_range(raw, 15..16)!=0 {
+        if bit_range(raw, 15..16) != 0 {
             //Timecode
             let fps = -(bit_range(raw, 8..16) as i8);
             let subframe = bit_range(raw, 0..8) as u8;
