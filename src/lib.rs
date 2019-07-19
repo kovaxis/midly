@@ -245,6 +245,16 @@ mod error {
         #[fail(display = "uncompliant smf file: {}", _0)]
         Pedantic(&'static str),
     }
+    impl ErrorKind {
+        /// Get the informative message on what exact part of the SMF format was not respected.
+        pub fn message(&self) -> &'static str {
+            match *self {
+                ErrorKind::Invalid(msg) => msg,
+                ErrorKind::Malformed(msg) => msg,
+                ErrorKind::Pedantic(msg) => msg,
+            }
+        }
+    }
 
     pub fn err_invalid(msg: &'static str) -> ErrorKind {
         ErrorKind::Invalid(msg)
