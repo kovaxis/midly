@@ -18,7 +18,7 @@ macro_rules! test {
                 Ok(smf) => smf,
                 Err(err) => {
                     eprintln!("failed to parse test file:");
-                    for cause in (&err as &Fail).iter_chain() {
+                    for cause in (&err as &dyn Fail).iter_chain() {
                         eprintln!("  {}", cause);
                     }
                     panic!()

@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-pub trait SplitChecked: Sized {
+pub(crate) trait SplitChecked: Sized {
     fn split_checked(&mut self, at: usize) -> Option<Self>;
 }
 impl<'a> SplitChecked for &'a [u8] {
@@ -16,13 +16,13 @@ impl<'a> SplitChecked for &'a [u8] {
 }
 
 /// Implemented on integer types for reading as big-endian.
-pub trait IntRead: Sized {
+pub(crate) trait IntRead: Sized {
     /// Reads a big-endian integer.
     fn read(data: &mut &[u8]) -> StdResult<Self, ErrorKind>;
 }
 /// Reads the int from u7 bytes, that is, the top bit in all bytes is ignored.
 /// For raw reading on integer types, use `read_raw`.
-pub trait IntReadBottom7: Sized {
+pub(crate) trait IntReadBottom7: Sized {
     /// Read an int from bytes, but only using the bottom 7 bits of each byte.
     fn read_u7(data: &mut &[u8]) -> StdResult<Self, ErrorKind>;
 }
@@ -171,7 +171,7 @@ impl IntReadBottom7 for u28 {
 }
 
 /// Reads a slice represented in the input as a `u28` `len` followed by `len` bytes.
-pub fn read_varlen_slice<'a>(raw: &mut &'a [u8]) -> Result<&'a [u8]> {
+pub(crate) fn read_varlen_slice<'a>(raw: &mut &'a [u8]) -> Result<&'a [u8]> {
     let len = u28::read_u7(raw)
         .context(err_invalid("failed to read varlen slice length"))?
         .as_int();

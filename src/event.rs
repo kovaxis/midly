@@ -10,9 +10,15 @@ pub struct Event<'a> {
     pub kind: EventKind<'a>,
 }
 impl<'a> Event<'a> {
-    /// The received raw slice should last until the end of the track.
-    /// This function will cut down the slice to the appropiate size.
-    /// Also, the incoming slice will be advanced to the next event.
+    /// Read an `Smf` track event from raw track data.
+    ///
+    /// The received raw slice should extend to the very end of the track.
+    ///
+    /// The first return value is a prefix of the input slice, containing the bytes that form
+    /// the first event in the track.
+    /// The second return value is this very same event, but parsed.
+    ///
+    /// The `raw` slice will be modified and have this prefix removed.
     pub fn read(
         raw: &mut &'a [u8],
         running_status: &mut Option<u8>,
@@ -89,7 +95,7 @@ impl<'a> EventKind<'a> {
         }
         //Delegate further parsing depending on status
         let kind = match status {
-            0x80...0xEF => {
+            0x80..=0xEF => {
                 let channel = u4::from(bit_range(status, 0..4));
                 EventKind::Midi {
                     channel,
@@ -201,8 +207,14 @@ impl MidiMessage {
             0xD => MidiMessage::ChannelAftertouch {
                 vel: u7::read(raw)?,
             },
-            0xE => MidiMessage::PitchBend {
-                bend: u14::read_u7(raw)?,
+            0xE => {
+                //Note the little-endian order, contrasting with the default big-endian order of
+                //Standard Midi Files
+                let lsb = u7::read(raw)?.as_int() as u16;
+                let msb = u7::read(raw)?.as_int() as u16;
+                MidiMessage::PitchBend {
+                    bend: u14::from(msb<<7 | lsb),
+                }
             },
             _ => bail!(err_invalid("invalid midi message status")),
         })

@@ -137,7 +137,7 @@ mod error {
             }
         }
         impl Fail for Error {
-            fn cause(&self) -> Option<&Fail> {
+            fn cause(&self) -> Option<&dyn Fail> {
                 self.inner.cause()
             }
 
@@ -285,11 +285,11 @@ mod error {
 }
 
 mod prelude {
-    pub use crate::{
+    pub(crate) use crate::{
         error::{
             err_invalid, err_malformed, err_pedantic, ErrorKind, Result, ResultExt, StdResult,
         },
-        primitive::{u14, u15, u2, u24, u28, u4, u7, IntRead, IntReadBottom7, SplitChecked},
+        primitive::{u14, u24, u28, u4, u7, IntRead, IntReadBottom7, SplitChecked},
     };
     pub use alloc::vec::Vec;
     pub use core::{marker::PhantomData, mem, ops};
