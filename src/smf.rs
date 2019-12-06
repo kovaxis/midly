@@ -53,6 +53,7 @@ impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
             _lifetime: PhantomData,
         })
     }
+    
     /// Generic `read` method.
     ///
     /// Prefer the `parse` methods instead, which handle generics for you.
@@ -78,6 +79,12 @@ impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
         }
         Ok(Smf::new(header, tracks)?)
     }
+    
+    /// Encode and write the MIDI file into the given generic writer.
+    ///
+    /// This function will bubble up errors from the underlying writer and produce `InvalidInput`
+    /// errors if the MIDI file is extremely large (like for example if there are more than 65535
+    /// tracks or chunk sizes are over 4GB).
     #[cfg(feature = "std")]
     pub fn write<W: Write>(&self, out: &mut W) -> IoResult<()> {
         //Write header

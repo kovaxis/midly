@@ -99,8 +99,6 @@ impl<'a> EventKind<'a> {
                 "event missing status with no running status active",
             ))?;
         } else {
-            //Set running status
-            *running_status = Some(status);
             //Advance slice 1 byte to consume status. Note that because we already did `get()`, we
             //can use panicking index here
             *raw = &raw[1..];
@@ -108,6 +106,7 @@ impl<'a> EventKind<'a> {
         //Delegate further parsing depending on status
         let kind = match status {
             0x80..=0xEF => {
+                *running_status = Some(status);
                 let channel = u4::from(bit_range(status, 0..4));
                 EventKind::Midi {
                     channel,
@@ -115,12 +114,18 @@ impl<'a> EventKind<'a> {
                         .context(err_invalid("failed to read midi message"))?,
                 }
             }
-            0xF0 => EventKind::SysEx(
-                read_varlen_slice(raw).context(err_invalid("failed to read sysex event"))?,
-            ),
-            0xF7 => EventKind::Escape(
-                read_varlen_slice(raw).context(err_invalid("failed to read escape event"))?,
-            ),
+            0xF0 => {
+                *running_status = None;
+                EventKind::SysEx(
+                    read_varlen_slice(raw).context(err_invalid("failed to read sysex event"))?,
+                )
+            }
+            0xF7 => {
+                *running_status = None;
+                EventKind::Escape(
+                    read_varlen_slice(raw).context(err_invalid("failed to read escape event"))?,
+                )
+            }
             0xFF => EventKind::Meta(
                 MetaMessage::read(raw).context(err_invalid("failed to read meta event"))?,
             ),
