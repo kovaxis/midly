@@ -1,10 +1,12 @@
+#[cfg(feature = "std")]
+use crate::primitive::write_varlen_slice;
 use crate::{
     prelude::*,
     primitive::{read_varlen_slice, SmpteTime},
 };
 
 /// Represents a fully parsed track event, with delta time.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct Event<'a> {
     pub delta: u28,
     pub kind: EventKind<'a>,
@@ -28,10 +30,20 @@ impl<'a> Event<'a> {
             EventKind::read(raw, running_status).context(err_invalid("failed to parse event"))?;
         Ok((raw, Event { delta, kind }))
     }
+    #[cfg(feature = "std")]
+    pub(crate) fn write<W: Write>(
+        &self,
+        running_status: &mut Option<u8>,
+        out: &mut W,
+    ) -> IoResult<()> {
+        self.delta.write_varlen(out)?;
+        self.kind.write(running_status, out)?;
+        Ok(())
+    }
 }
 
 /// Represents the different kinds of events.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum EventKind<'a> {
     /// A standard MIDI message bound to a channel.
     Midi { channel: u4, message: MidiMessage },
@@ -121,6 +133,40 @@ impl<'a> EventKind<'a> {
         let source_bytes = &old_slice[0..len];
         Ok((source_bytes, kind))
     }
+    #[cfg(feature = "std")]
+    fn write<W: Write>(&self, running_status: &mut Option<u8>, out: &mut W) -> IoResult<()> {
+        //Running Status rules:
+        // - MIDI Messages (0x80 ..= 0xEF) alter and use running status
+        // - System Common (0xF0 ..= 0xF7) cancel and cannot use running status
+        // - System Realtime (0xF8 ..= 0xFF), including Meta Messages, do not alter running status
+        //      and cannot use it either
+        match self {
+            EventKind::Midi { channel, message } => {
+                let status = message.status_nibble() << 4 | channel.as_int();
+                if Some(status) != *running_status {
+                    //Explicitly write status
+                    out.write_all(&[status])?;
+                    *running_status = Some(status);
+                }
+                message.write(out)?;
+            }
+            EventKind::SysEx(data) => {
+                *running_status = None;
+                out.write_all(&[0xF0])?;
+                write_varlen_slice(data, out)?;
+            }
+            EventKind::Escape(data) => {
+                *running_status = None;
+                out.write_all(&[0xF7])?;
+                write_varlen_slice(data, out)?;
+            }
+            EventKind::Meta(meta) => {
+                out.write_all(&[0xFF])?;
+                meta.write(out)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Represents a MIDI message, not an event.
@@ -128,7 +174,7 @@ impl<'a> EventKind<'a> {
 /// If reading a MIDI message from some stream, use `EventKind::read` instead and discard non-midi
 /// events.
 /// This is the correct way to handle running status.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum MidiMessage {
     /// Stop playing a note.
     NoteOff {
@@ -213,15 +259,45 @@ impl MidiMessage {
                 let lsb = u7::read(raw)?.as_int() as u16;
                 let msb = u7::read(raw)?.as_int() as u16;
                 MidiMessage::PitchBend {
-                    bend: u14::from(msb<<7 | lsb),
+                    bend: u14::from(msb << 7 | lsb),
                 }
-            },
+            }
             _ => bail!(err_invalid("invalid midi message status")),
         })
     }
+    /// Get the raw status nibble for this MIDI message type.
+    #[cfg(feature = "std")]
+    fn status_nibble(&self) -> u8 {
+        match self {
+            MidiMessage::NoteOff { .. } => 0x8,
+            MidiMessage::NoteOn { .. } => 0x9,
+            MidiMessage::Aftertouch { .. } => 0xA,
+            MidiMessage::Controller { .. } => 0xB,
+            MidiMessage::ProgramChange { .. } => 0xC,
+            MidiMessage::ChannelAftertouch { .. } => 0xD,
+            MidiMessage::PitchBend { .. } => 0xE,
+        }
+    }
+    #[cfg(feature = "std")]
+    fn write<W: Write>(&self, out: &mut W) -> IoResult<()> {
+        match self {
+            MidiMessage::NoteOff { key, vel } => out.write_all(&[key.as_int(), vel.as_int()])?,
+            MidiMessage::NoteOn { key, vel } => out.write_all(&[key.as_int(), vel.as_int()])?,
+            MidiMessage::Aftertouch { key, vel } => out.write_all(&[key.as_int(), vel.as_int()])?,
+            MidiMessage::Controller { controller, value } => {
+                out.write_all(&[controller.as_int(), value.as_int()])?
+            }
+            MidiMessage::ProgramChange { program } => out.write_all(&[program.as_int()])?,
+            MidiMessage::ChannelAftertouch { vel } => out.write_all(&[vel.as_int()])?,
+            MidiMessage::PitchBend { bend } => {
+                out.write_all(&[(bend.as_int() & 0x7F) as u8, (bend.as_int() >> 7) as u8])?
+            }
+        }
+        Ok(())
+    }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum MetaMessage<'a> {
     /// For `Format::Sequential` MIDI file types, `TrackNumber` can be empty, and defaults to
     /// track index.
@@ -248,8 +324,9 @@ pub enum MetaMessage<'a> {
     /// In order of the MIDI specification, numerator, denominator, midi clocks per click, 32nd
     /// notes per quarter
     TimeSignature(u8, u8, u8, u8),
-    /// As in the MIDI specification, negative numbers indicate number of flats, positive number
-    /// of sharps `false` indicates major, `true` indicates minor.
+    /// As in the MIDI specification, negative numbers indicate number of flats and positive
+    /// numbers indicate number of sharps.
+    /// `false` indicates a major scale, `true` indicates a minor scale.
     KeySignature(i8, bool),
     SequencerSpecific(&'a [u8]),
     /// An unknown meta-message, unconforming to the spec.
@@ -355,5 +432,46 @@ impl<'a> MetaMessage<'a> {
                 }
             }
         })
+    }
+    #[cfg(feature = "std")]
+    fn write<W: Write>(&self, out: &mut W) -> IoResult<()> {
+        let mut write_msg = |type_byte: u8, data: &[u8]| {
+            out.write_all(&[type_byte])?;
+            write_varlen_slice(data, out)?;
+            Ok(())
+        };
+        match self {
+            MetaMessage::TrackNumber(track_num) => match track_num {
+                None => write_msg(0x00, &[]),
+                Some(track_num) => write_msg(0x00, &track_num.to_be_bytes()[..]),
+            },
+            MetaMessage::Text(data) => write_msg(0x01, data),
+            MetaMessage::Copyright(data) => write_msg(0x02, data),
+            MetaMessage::TrackName(data) => write_msg(0x03, data),
+            MetaMessage::InstrumentName(data) => write_msg(0x04, data),
+            MetaMessage::Lyric(data) => write_msg(0x05, data),
+            MetaMessage::Marker(data) => write_msg(0x06, data),
+            MetaMessage::CuePoint(data) => write_msg(0x07, data),
+            MetaMessage::ProgramName(data) => write_msg(0x08, data),
+            MetaMessage::DeviceName(data) => write_msg(0x09, data),
+            MetaMessage::MidiChannel(chan) => write_msg(0x20, &[chan.as_int()]),
+            MetaMessage::MidiPort(port) => write_msg(0x21, &[port.as_int()]),
+            MetaMessage::EndOfTrack => write_msg(0x2F, &[]),
+            MetaMessage::Tempo(microsperbeat) => {
+                write_msg(0x51, &microsperbeat.as_int().to_be_bytes()[1..])
+            }
+            MetaMessage::SmpteOffset(smpte) => write_msg(0x54, &smpte.encode()[..]),
+            MetaMessage::TimeSignature(num, den, ticksperclick, thirtysecondsperquarter) => {
+                write_msg(
+                    0x58,
+                    &[*num, *den, *ticksperclick, *thirtysecondsperquarter],
+                )
+            }
+            MetaMessage::KeySignature(sharps, minor) => {
+                write_msg(0x59, &[*sharps as u8, *minor as u8])
+            }
+            MetaMessage::SequencerSpecific(data) => write_msg(0x7F, data),
+            MetaMessage::Unknown(type_byte, data) => write_msg(*type_byte, data),
+        }
     }
 }

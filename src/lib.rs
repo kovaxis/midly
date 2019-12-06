@@ -292,7 +292,9 @@ mod prelude {
         primitive::{u14, u24, u28, u4, u7, IntRead, IntReadBottom7, SplitChecked},
     };
     pub use alloc::vec::Vec;
-    pub use core::{marker::PhantomData, mem, ops};
+    pub use core::{marker::PhantomData, mem, ops, convert::TryFrom};
+    #[cfg(feature = "std")]
+    pub use std::io::{self, Write, Error as IoError, Result as IoResult};
 
     pub fn bit_range<T>(val: T, range: ops::Range<u32>) -> T
     where

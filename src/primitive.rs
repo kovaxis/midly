@@ -79,7 +79,7 @@ macro_rules! int_feature {
                     //Throw away extra bits
                     Ok(Self::from(raw))
                 }else{
-                    Ok(Self::try_from(raw).ok_or(err_malformed(stringify!("expected " $name ", found " $inner)))?)
+                    Ok(Self::try_from(raw).ok_or(err_malformed(concat!("expected ", stringify!($name), ", found ", stringify!($inner))))?)
                 }
             }
         }
@@ -88,7 +88,7 @@ macro_rules! int_feature {
 macro_rules! restricted_int {
     {$(#[$attr:meta])* $name:ident : $inner:tt => $bits:expr ; $( $feature:tt )* } => {
         $(#[$attr])*
-        #[derive(Copy,Clone,Debug)]
+        #[derive(Copy, Clone, PartialEq, Eq, Debug)]
         #[allow(non_camel_case_types)]
         pub struct $name($inner);
         impl From<$inner> for $name {
@@ -170,6 +170,32 @@ impl IntReadBottom7 for u28 {
     }
 }
 
+#[cfg(feature = "std")]
+impl u28 {
+    pub(crate) fn write_varlen<W: Write>(&self, out: &mut W) -> IoResult<()> {
+        let int = self.as_int();
+        let mut skipping = true;
+        for i in (0..4).rev() {
+            let byte = ((int>>(i*7))&0x7F) as u8;
+            if skipping && byte==0 && i!=0 {
+                //Skip these leading zeros
+            }else{
+                //Write down this u7
+                skipping=false;
+                let byte = if i==0 {
+                    //Last byte
+                    byte
+                }else{
+                    //Leading byte
+                    byte | 0x80
+                };
+                out.write_all(&[byte])?;
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Reads a slice represented in the input as a `u28` `len` followed by `len` bytes.
 pub(crate) fn read_varlen_slice<'a>(raw: &mut &'a [u8]) -> Result<&'a [u8]> {
     let len = u28::read_u7(raw)
@@ -187,8 +213,20 @@ pub(crate) fn read_varlen_slice<'a>(raw: &mut &'a [u8]) -> Result<&'a [u8]> {
     })
 }
 
+#[cfg(feature = "std")]
+/// Write a slice represented as a varlen `u28` as its length and then the raw bytes.
+pub(crate) fn write_varlen_slice<W: Write>(slice: &[u8], out: &mut W) -> IoResult<()> {
+    let len = u32::try_from(slice.len())
+        .ok()
+        .and_then(|len| u28::try_from(len))
+        .ok_or_else(|| IoError::new(io::ErrorKind::InvalidInput, "chunk size exceeds 28 bits"))?;
+    len.write_varlen(out)?;
+    out.write_all(slice)?;
+    Ok(())
+}
+
 /// The different formats an SMF file can be.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Format {
     SingleTrack,
     Parallel,
@@ -204,11 +242,20 @@ impl Format {
             _ => bail!(err_invalid("invalid smf format")),
         })
     }
+    #[cfg(feature = "std")]
+    pub fn encode(&self) -> [u8; 2] {
+        let code: u16 = match self {
+            Format::SingleTrack => 0,
+            Format::Parallel => 1,
+            Format::Sequential => 2,
+        };
+        code.to_be_bytes()
+    }
 }
 
 /// The timing for an SMF file.
 /// This can be in ticks/beat or ticks/second.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Timing {
     /// Specifies ticks/beat as a 15-bit integer.
     Metrical(u15),
@@ -232,6 +279,15 @@ impl Timing {
             Ok(Timing::Metrical(u15::from(raw)))
         }
     }
+    #[cfg(feature = "std")]
+    pub fn encode(&self) -> [u8; 2] {
+        match self {
+            Timing::Metrical(ticksperbeat) => ticksperbeat.as_int().to_be_bytes(),
+            Timing::Timecode(framespersec, ticksperframe) => {
+                [(-(framespersec.as_int() as i8)) as u8, *ticksperframe]
+            }
+        }
+    }
 }
 
 /// Encodes an SMPTE time of the day.
@@ -243,7 +299,7 @@ impl Timing {
 /// - `second` is inside [0,59]
 /// - `frame` is inside [0,fps[
 /// - `subframe` is inside [0,99]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct SmpteTime {
     hour: u8,
     minute: u8,
@@ -318,9 +374,20 @@ impl SmpteTime {
         Ok(SmpteTime::new(hour, minute, second, frame, subframe, fps)
             .ok_or(err_invalid("invalid smpte time"))?)
     }
+    #[cfg(feature = "std")]
+    pub fn encode(&self) -> [u8; 5] {
+        let hour_fps = self.hour() | self.fps().as_code().as_int() << 5;
+        [
+            hour_fps,
+            self.minute(),
+            self.second(),
+            self.frame(),
+            self.subframe(),
+        ]
+    }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Fps {
     Fps24,
     Fps25,
@@ -337,6 +404,15 @@ impl Fps {
             3 => Fps::Fps30,
             _ => unreachable!(),
         }
+    }
+    /// Does the conversion to a 2-bit fps code.
+    pub fn as_code(self) -> u2 {
+        u2::from(match self {
+            Fps::Fps24 => 0,
+            Fps::Fps25 => 1,
+            Fps::Fps29 => 2,
+            Fps::Fps30 => 3,
+        })
     }
     /// Converts an integer representing the semantic fps to an `Fps` value (ie. `24` -> `Fps24`).
     pub fn from_int(raw: u8) -> Option<Fps> {

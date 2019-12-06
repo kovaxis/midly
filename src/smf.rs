@@ -7,7 +7,7 @@ use crate::{
 /// Represents a Standard Midi File (.mid and .midi files).
 /// Yields `TrackRepr` on a Vec, allowing for customization on what is stored in a track.
 /// References an outside byte array.
-#[derive(Clone, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Smf<'a, T: TrackRepr<'a> = Vec<Event<'a>>> {
     pub header: Header,
     pub tracks: Vec<T>,
@@ -47,12 +47,6 @@ impl Smf<'_> {
 impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
     /// Create a new SMF from its raw parts.
     pub fn new(header: Header, tracks: Vec<T>) -> Result<Smf<'a, T>> {
-        if !cfg!(feature = "lenient") {
-            ensure!(
-                header.track_count as usize == tracks.len(),
-                err_malformed("file has a different amount of tracks than declared")
-            );
-        }
         Ok(Smf {
             header,
             tracks,
@@ -64,15 +58,58 @@ impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
     /// Prefer the `parse` methods instead, which handle generics for you.
     pub fn read(raw: &'a [u8]) -> Result<Smf<'a, T>> {
         let mut chunks = ChunkIter::read(raw);
-        let header = match chunks.next() {
+        let (header, track_count) = match chunks.next() {
             Some(maybe_chunk) => match maybe_chunk.context(err_invalid("invalid midi header"))? {
-                Chunk::Header(header) => Ok(header),
+                Chunk::Header(header, track_count) => Ok((header, track_count)),
                 Chunk::Track(_) => Err(err_invalid("expected header, found track")),
             },
             None => Err(err_invalid("empty file")),
         }?;
-        let tracks = chunks.parse_as_tracks(header)?;
+        let tracks = chunks.parse_as_tracks(track_count)?;
+        if !cfg!(feature = "lenient") {
+            ensure!(
+                track_count as usize == tracks.len(),
+                err_malformed("file has a different amount of tracks than declared")
+            );
+            ensure!(
+                header.format != Format::SingleTrack || track_count == 1,
+                err_malformed("singletrack format file has multiple tracks")
+            );
+        }
         Ok(Smf::new(header, tracks)?)
+    }
+    #[cfg(feature = "std")]
+    pub fn write<W: Write>(&self, out: &mut W) -> IoResult<()> {
+        //Write header
+        let mut header_chunk = [0; 4 + 4 + 6];
+        let track_count = u16::try_from(self.tracks.len()).map_err(|_| {
+            IoError::new(
+                io::ErrorKind::InvalidInput,
+                "track count exceeds 16 bit range",
+            )
+        })?;
+        let header = self.header.encode(track_count);
+        header_chunk[0..4].copy_from_slice(&b"MThd"[..]);
+        header_chunk[4..8].copy_from_slice(&(header.len() as u32).to_be_bytes()[..]);
+        header_chunk[8..].copy_from_slice(&header[..]);
+        out.write_all(&header_chunk[..])?;
+        //Write tracks
+        let mut track_data = Vec::with_capacity(16 * 1024);
+        for track in self.tracks.iter() {
+            //Write tracks into a buffer first so that chunk lengths can be written
+            track_data.clear();
+            track_data.extend_from_slice(b"MTrk\0\0\0\0");
+            track.write(&mut track_data)?;
+            let len = u32::try_from(track_data.len() - 8).map_err(|_| {
+                IoError::new(
+                    io::ErrorKind::InvalidInput,
+                    "midi chunk size exceeds 32 bit range",
+                )
+            })?;
+            track_data[4..8].copy_from_slice(&len.to_be_bytes());
+            out.write_all(&track_data[..])?;
+        }
+        Ok(())
     }
 }
 
@@ -87,14 +124,14 @@ impl<'a> ChunkIter<'a> {
     }
 
     /// Interpret the remaining chunks as tracks.
-    fn parse_as_tracks<T: TrackRepr<'a>>(self, header: Header) -> Result<Vec<T>> {
+    fn parse_as_tracks<T: TrackRepr<'a>>(self, track_count_hint: u16) -> Result<Vec<T>> {
         //Attempt to use multiple threads if possible and enabled
         #[cfg(feature = "std")]
         {
             if T::USE_MULTITHREADING {
                 use rayon::prelude::*;
 
-                let mut chunk_vec = Vec::with_capacity(header.track_count as usize);
+                let mut chunk_vec = Vec::with_capacity(track_count_hint as usize);
                 chunk_vec.extend(self);
                 return chunk_vec
                     .into_par_iter()
@@ -103,7 +140,7 @@ impl<'a> ChunkIter<'a> {
             }
         }
         //Fall back to single-threaded
-        let mut tracks = Vec::with_capacity(header.track_count as usize);
+        let mut tracks = Vec::with_capacity(track_count_hint as usize);
         for chunk_result in self {
             if let Some(track) = Chunk::parse_into_track(chunk_result) {
                 tracks.push(track?);
@@ -132,7 +169,7 @@ impl<'a> Iterator for ChunkIter<'a> {
 
 #[derive(Copy, Clone, Debug)]
 enum Chunk<'a> {
-    Header(Header),
+    Header(Header, u16),
     Track(&'a [u8]),
 }
 impl<'a> Chunk<'a> {
@@ -140,9 +177,9 @@ impl<'a> Chunk<'a> {
     /// The slice will be modified to point to the next chunk.
     /// If we're *exactly* at EOF (slice length 0), returns a None signalling no more chunks.
     fn read(raw: &mut &'a [u8]) -> Result<Option<Chunk<'a>>> {
-        loop {
+        Ok(loop {
             if raw.len() == 0 {
-                break Ok(None);
+                break None;
             }
             let id = raw
                 .split_checked(4)
@@ -159,14 +196,18 @@ impl<'a> Chunk<'a> {
                     }
                 }
             };
-            if id == "MThd".as_bytes() {
-                break Ok(Some(Chunk::Header(Header::read(chunkdata)?)));
-            } else if id == "MTrk".as_bytes() {
-                break Ok(Some(Chunk::Track(chunkdata)));
-            } else {
+            match id {
+                b"MThd" => {
+                    let (header, track_count) = Header::read(chunkdata)?;
+                    break Some(Chunk::Header(header, track_count));
+                }
+                b"MTrk" => {
+                    break Some(Chunk::Track(chunkdata));
+                }
                 //Unknown chunk, just ignore and read the next one
+                _ => (),
             }
-        }
+        })
     }
 
     /// Interpret the chunk as a track.
@@ -176,7 +217,7 @@ impl<'a> Chunk<'a> {
         match chunk_parse_result {
             Ok(Chunk::Track(track)) => Some(T::read(track)),
             //Read another header (?)
-            Ok(Chunk::Header(_)) => {
+            Ok(Chunk::Header(..)) => {
                 if cfg!(feature = "lenient") {
                     //Ignore duplicate header
                     None
@@ -202,34 +243,30 @@ impl<'a> Chunk<'a> {
 }
 
 /// A MIDI file header.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct Header {
     pub format: Format,
     pub timing: Timing,
-    track_count: u16,
 }
 impl Header {
-    pub fn new(format: Format, timing: Timing, track_count: u16) -> Header {
-        Header {
-            format,
-            timing,
-            track_count,
-        }
+    pub fn new(format: Format, timing: Timing) -> Header {
+        Header { format, timing }
     }
 
-    pub fn read(mut raw: &[u8]) -> Result<Header> {
+    /// Read both the header and the track count.
+    fn read(mut raw: &[u8]) -> Result<(Header, u16)> {
         let format = Format::read(&mut raw)?;
         let track_count = u16::read(&mut raw)?;
-        if !cfg!(feature = "lenient") {
-            if let Format::SingleTrack = format {
-                ensure!(
-                    track_count == 1,
-                    err_malformed("singletrack format file has multiple tracks")
-                );
-            }
-        }
         let timing = Timing::read(&mut raw)?;
-        Ok(Header::new(format, timing, track_count))
+        Ok((Header::new(format, timing), track_count))
+    }
+    #[cfg(feature = "std")]
+    fn encode(&self, track_count: u16) -> [u8; 6] {
+        let mut bytes = [0; 6];
+        bytes[0..2].copy_from_slice(&self.format.encode()[..]);
+        bytes[2..4].copy_from_slice(&track_count.to_be_bytes()[..]);
+        bytes[4..6].copy_from_slice(&self.timing.encode()[..]);
+        bytes
     }
 }
 
@@ -237,6 +274,8 @@ impl Header {
 pub trait TrackRepr<'a>: Sized + Send {
     const USE_MULTITHREADING: bool;
     fn read(data: &'a [u8]) -> Result<Self>;
+    #[cfg(feature = "std")]
+    fn write<W: Write>(&self, out: &mut W) -> IoResult<()>;
 }
 
 /// Allows deferring track parsing for later, on a per-event basis.
@@ -255,6 +294,11 @@ impl<'a> TrackRepr<'a> for TrackIter<'a> {
             raw,
             running_status: None,
         })
+    }
+    #[cfg(feature = "std")]
+    fn write<W: Write>(&self, out: &mut W) -> IoResult<()> {
+        out.write_all(self.raw)?;
+        Ok(())
     }
 }
 impl<'a> Iterator for TrackIter<'a> {
@@ -284,6 +328,14 @@ impl<'a> TrackRepr<'a> for Vec<(&'a [u8], Event<'a>)> {
     fn read(raw: &'a [u8]) -> Result<Self> {
         TrackIter::read(raw)?.collect::<Result<Vec<_>>>()
     }
+    #[cfg(feature = "std")]
+    fn write<W: Write>(&self, out: &mut W) -> IoResult<()> {
+        let mut running_status = None;
+        for (_data, event) in self.iter() {
+            event.write(&mut running_status, out)?;
+        }
+        Ok(())
+    }
 }
 /// Similar to `Vec<(&[u8],Event)>`, but throws away the bytes associated with each event to save
 /// memory.
@@ -293,5 +345,13 @@ impl<'a> TrackRepr<'a> for Vec<Event<'a>> {
         TrackIter::read(raw)?
             .map(|res| res.map(|(_, ev)| ev))
             .collect::<Result<Vec<_>>>()
+    }
+    #[cfg(feature = "std")]
+    fn write<W: Write>(&self, out: &mut W) -> IoResult<()> {
+        let mut running_status = None;
+        for event in self.iter() {
+            event.write(&mut running_status, out)?;
+        }
+        Ok(())
     }
 }
