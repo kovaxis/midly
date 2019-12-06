@@ -85,6 +85,8 @@ impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
     /// This function will bubble up errors from the underlying writer and produce `InvalidInput`
     /// errors if the MIDI file is extremely large (like for example if there are more than 65535
     /// tracks or chunk sizes are over 4GB).
+    ///
+    /// This function will make use of multiple threads if the `std` feature is enabled.
     #[cfg(feature = "std")]
     pub fn write<W: Write>(&self, out: &mut W) -> IoResult<()> {
         //Write the header first
@@ -120,6 +122,24 @@ impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
             out.write_all(&track_chunk[..])?;
             track_chunk.clear();
         }
+        Ok(())
+    }
+    
+    /// Encode and save the MIDI file to the given path.
+    ///
+    /// Also see the `Smf::write` method.
+    #[cfg(feature = "std")]
+    pub fn save<P: AsRef<std::path::Path>>(&self, path: P) -> IoResult<()> {
+        self.save_impl(path.as_ref())
+    }
+    
+    /// Forces the `write` function to be monomorphized with `W = File`.
+    #[cfg(feature = "std")]
+    fn save_impl(&self, path: &std::path::Path) -> IoResult<()> {
+        use std::fs::File;
+        
+        let mut out = File::create(path)?;
+        self.write(&mut out)?;
         Ok(())
     }
 }

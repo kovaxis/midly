@@ -44,8 +44,36 @@
 //! // Load bytes into a buffer
 //! let bytes = fs::read("test-asset/Clementi.mid").unwrap();
 //!
-//! //Parse bytes in a separate step
+//! // Parse bytes in a separate step
 //! let smf = Smf::parse(&bytes).unwrap();
+//! ```
+//!
+//! # Writing Standard Midi Files
+//!
+//! Saving SMF files is as simple as using the `Smf::save` method:
+//!
+//! ```rust
+//! # use std::fs;
+//! # use midly::Smf;
+//! // Parse file
+//! let bytes = fs::read("test-asset/Clementi.mid").unwrap();
+//! let smf = Smf::parse(&bytes).unwrap();
+//!
+//! // Rewrite file
+//! smf.save("test-asset/ClementiRewritten.mid").unwrap();
+//! ```
+//!
+//! SMF files can also be written to an arbitrary writer:
+//!
+//! ```rust
+//! # use std::fs;
+//! # use midly::Smf;
+//! # let bytes = fs::read("test-asset/Clementi.mid").unwrap();
+//! # let smf = Smf::parse(&bytes).unwrap();
+//! let mut in_memory = Vec::new();
+//! smf.write(&mut in_memory).unwrap();
+//!
+//! println!("midi file fits in {} bytes!", in_memory.len());
 //! ```
 //!
 //! # About features

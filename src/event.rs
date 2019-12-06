@@ -138,8 +138,15 @@ impl<'a> EventKind<'a> {
         let source_bytes = &old_slice[0..len];
         Ok((source_bytes, kind))
     }
+    
+    /// Writes a single event to the given output writer.
+    ///
+    /// `running_status` keeps track of the last MIDI status, in order to make proper use of
+    /// running status. It should be shared between sequential calls, and should initially be set
+    /// to `None`. If you wish to disable running status, pass in `&mut None` to every call to
+    /// this method.
     #[cfg(feature = "std")]
-    fn write<W: Write>(&self, running_status: &mut Option<u8>, out: &mut W) -> IoResult<()> {
+    pub fn write<W: Write>(&self, running_status: &mut Option<u8>, out: &mut W) -> IoResult<()> {
         //Running Status rules:
         // - MIDI Messages (0x80 ..= 0xEF) alter and use running status
         // - System Common (0xF0 ..= 0xF7) cancel and cannot use running status
