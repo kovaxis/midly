@@ -56,10 +56,12 @@
 //!
 //! - The `std` feature
 //!
-//!   This feature is enabled by default, and in turn enables the `rayon` dependency along with
-//!   automatic parallelism for the `Smf::parse` and `Smf::parse_with_bytemap` functions.
+//!   This feature enables the MIDI writer (which uses `std::io::Write`) and automatic
+//!   parallelization for the `Smf::parse` and `Smf::parse_with_bytemap` functions (through the
+//!   `rayon` dependency).
 //!
-//!   Disabling this feature with `default-features = false` will make the crate `no_std + alloc`.
+//!   This feature is enabled by default. Disabling this feature with `default-features = false`
+//!   will make the crate `no_std + alloc`.
 //!
 //! - The `lenient` feature
 //!
@@ -95,7 +97,7 @@
 //!
 //! `midly` provides partial support for parsing these MIDI messages, through the
 //! [`EventKind::parse`](enum.EventKind.html#method.parse) method, however most System Common
-//! messages are unsupported.
+//! and System Realtime messages are unsupported.
 
 #![forbid(unsafe_code)]
 #![cfg_attr(not(any(test, feature = "std")), no_std)]

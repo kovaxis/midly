@@ -107,6 +107,9 @@ mod parse {
 }
 
 /// Test the MIDI writer and parser.
+///
+/// Writing is only enabled with the `std` feature.
+#[cfg(feature = "std")]
 mod write {
     use super::*;
     
