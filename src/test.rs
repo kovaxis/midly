@@ -44,7 +44,6 @@ macro_rules! test_rewrite {
         time(concat!($name, "[rewrite]"), || {
             smf.write(&mut file).expect("failed to rewrite midi file");
         });
-        fs::write("rewritten.mid", &file).unwrap();
         println!("reparsing...");
         let clone_smf = time(concat!($name, "[reparse]"), || {
             Smf::parse(&file).expect("failed to reparse midi file")

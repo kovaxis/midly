@@ -87,34 +87,38 @@ impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
     /// tracks or chunk sizes are over 4GB).
     #[cfg(feature = "std")]
     pub fn write<W: Write>(&self, out: &mut W) -> IoResult<()> {
-        //Write header
-        let mut header_chunk = [0; 4 + 4 + 6];
-        let track_count = u16::try_from(self.tracks.len()).map_err(|_| {
-            IoError::new(
-                io::ErrorKind::InvalidInput,
-                "track count exceeds 16 bit range",
-            )
-        })?;
-        let header = self.header.encode(track_count);
-        header_chunk[0..4].copy_from_slice(&b"MThd"[..]);
-        header_chunk[4..8].copy_from_slice(&(header.len() as u32).to_be_bytes()[..]);
-        header_chunk[8..].copy_from_slice(&header[..]);
-        out.write_all(&header_chunk[..])?;
-        //Write tracks
-        let mut track_data = Vec::with_capacity(16 * 1024);
+        //Write the header first
+        Chunk::write_header(&self.header, self.tracks.len(), out)?;
+        
+        //Try to write the file in parallel
+        #[cfg(feature = "std")]
+        {
+            if T::USE_MULTITHREADING {
+                use rayon::prelude::*;
+                
+                //Write out the tracks in parallel into several different buffers
+                let track_chunks = self.tracks.par_iter().map(|track| {
+                    let mut track_chunk = Vec::with_capacity(8*1024);
+                    Chunk::write_track(track, &mut track_chunk)?;
+                    Ok(track_chunk)
+                }).collect::<IoResult<Vec<_>>>()?;
+                
+                //Write down the tracks sequentially and in order
+                for track_chunk in track_chunks {
+                    out.write_all(&track_chunk)?;
+                }
+                return Ok(());
+            }
+        }
+        
+        //Fall back to writing the file serially
+        //Write tracks into a reusable buffer before writing them out
+        let mut track_chunk = Vec::with_capacity(8 * 1024);
         for track in self.tracks.iter() {
             //Write tracks into a buffer first so that chunk lengths can be written
-            track_data.clear();
-            track_data.extend_from_slice(b"MTrk\0\0\0\0");
-            track.write(&mut track_data)?;
-            let len = u32::try_from(track_data.len() - 8).map_err(|_| {
-                IoError::new(
-                    io::ErrorKind::InvalidInput,
-                    "midi chunk size exceeds 32 bit range",
-                )
-            })?;
-            track_data[4..8].copy_from_slice(&len.to_be_bytes());
-            out.write_all(&track_data[..])?;
+            Chunk::write_track(track, &mut track_chunk)?;
+            out.write_all(&track_chunk[..])?;
+            track_chunk.clear();
         }
         Ok(())
     }
@@ -247,6 +251,39 @@ impl<'a> Chunk<'a> {
             }
         }
     }
+    
+    /// Write a header chunk into a writer.
+    fn write_header<W: Write>(header: &Header, track_count: usize, out: &mut W) -> IoResult<()> {
+        let mut header_chunk = [0; 4 + 4 + 6];
+        let track_count = u16::try_from(track_count).map_err(|_| {
+            IoError::new(
+                io::ErrorKind::InvalidInput,
+                "track count exceeds 16 bit range",
+            )
+        })?;
+        let header = header.encode(track_count);
+        header_chunk[0..4].copy_from_slice(&b"MThd"[..]);
+        header_chunk[4..8].copy_from_slice(&(header.len() as u32).to_be_bytes()[..]);
+        header_chunk[8..].copy_from_slice(&header[..]);
+        out.write_all(&header_chunk[..])?;
+        Ok(())
+    }
+    
+    /// Write a track chunk into a `Vec`.
+    ///
+    /// The `Vec` should be empty.
+    fn write_track<T: TrackRepr<'a>>(track: &T, out: &mut Vec<u8>) -> IoResult<()> {
+        out.extend_from_slice(b"MTrk\0\0\0\0");
+        track.write(out)?;
+        let len = u32::try_from(out.len() - 8).map_err(|_| {
+            IoError::new(
+                io::ErrorKind::InvalidInput,
+                "midi chunk size exceeds 32 bit range",
+            )
+        })?;
+        out[4..8].copy_from_slice(&len.to_be_bytes());
+        Ok(())
+    }
 }
 
 /// A MIDI file header.
@@ -278,7 +315,7 @@ impl Header {
 }
 
 /// Allows for customization on how tracks are stored in memory.
-pub trait TrackRepr<'a>: Sized + Send {
+pub trait TrackRepr<'a>: Sized + Send + Sync {
     const USE_MULTITHREADING: bool;
     fn read(data: &'a [u8]) -> Result<Self>;
     #[cfg(feature = "std")]
