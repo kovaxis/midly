@@ -138,7 +138,7 @@ impl<'a> EventKind<'a> {
         let source_bytes = &old_slice[0..len];
         Ok((source_bytes, kind))
     }
-    
+
     /// Writes a single event to the given output writer.
     ///
     /// `running_status` keeps track of the last MIDI status, in order to make proper use of

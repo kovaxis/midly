@@ -111,23 +111,23 @@ mod parse {
 #[cfg(feature = "std")]
 mod write {
     use super::*;
-    
+
     #[test]
     fn clementi_rewrite() {
         test_rewrite!("rewrite_clementi", "Clementi.mid");
     }
-    
+
     #[test]
     fn pi_rewrite() {
         test_rewrite!("rewrite_pi", "Pi.mid");
     }
-    
+
     #[test]
     #[cfg_attr(not(feature = "lenient"), should_panic)]
     fn pidamaged_rewrite() {
         test_rewrite!("rewrite_pidamaged", "PiDamaged.mid");
     }
-    
+
     #[test]
     #[cfg_attr(feature = "strict", should_panic)]
     fn levels_rewrite() {
