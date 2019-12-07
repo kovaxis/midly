@@ -24,7 +24,7 @@ impl<'a> Event<'a> {
     pub fn read(
         raw: &mut &'a [u8],
         running_status: &mut Option<u8>,
-    ) -> Result<(&'a [u8], Event<'a>)> {
+    ) -> Result<(&'a [u8], Self)> {
         let delta = u28::read_u7(raw).context(err_invalid("failed to read event deltatime"))?;
         let (raw, kind) =
             EventKind::read(raw, running_status).context(err_invalid("failed to parse event"))?;
@@ -75,7 +75,7 @@ impl<'a> EventKind<'a> {
     pub fn parse(
         raw: &mut &'a [u8],
         running_status: &mut Option<u8>,
-    ) -> Result<(&'a [u8], EventKind<'a>)> {
+    ) -> Result<(&'a [u8], Self)> {
         let (old_raw, old_rs) = (*raw, *running_status);
         let maybe_ev = Self::read(raw, running_status);
         if let Err(_) = maybe_ev {
@@ -88,7 +88,7 @@ impl<'a> EventKind<'a> {
     fn read(
         raw: &mut &'a [u8],
         running_status: &mut Option<u8>,
-    ) -> Result<(&'a [u8], EventKind<'a>)> {
+    ) -> Result<(&'a [u8], Self)> {
         //Keep the beggining of the old slice
         let old_slice = *raw;
         //Read status
@@ -241,7 +241,7 @@ pub enum MidiMessage {
 impl MidiMessage {
     /// Receives a slice pointing to midi args (not including status byte)
     /// Status byte is given separately to reuse running status
-    fn read(raw: &mut &[u8], status: u8) -> Result<MidiMessage> {
+    fn read(raw: &mut &[u8], status: u8) -> Result<Self> {
         Ok(match bit_range(status, 4..8) {
             0x8 => MidiMessage::NoteOff {
                 key: u7::read(raw)?,
@@ -347,7 +347,7 @@ pub enum MetaMessage<'a> {
     Unknown(u8, &'a [u8]),
 }
 impl<'a> MetaMessage<'a> {
-    fn read(raw: &mut &'a [u8]) -> Result<MetaMessage<'a>> {
+    fn read(raw: &mut &'a [u8]) -> Result<Self> {
         let type_byte = u8::read(raw).context(err_invalid("failed to read meta message type"))?;
         let mut data =
             read_varlen_slice(raw).context(err_invalid("failed to read meta message data"))?;

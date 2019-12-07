@@ -316,7 +316,7 @@ impl SmpteTime {
         frame: u8,
         subframe: u8,
         fps: Fps,
-    ) -> Option<SmpteTime> {
+    ) -> Option<Self> {
         macro_rules! check {
             ($cond:expr) => {{
                 if !{ $cond } {
@@ -329,7 +329,7 @@ impl SmpteTime {
         check!(second < 60);
         check!(frame < fps.as_int());
         check!(subframe < 100);
-        Some(SmpteTime {
+        Some(Self {
             hour,
             minute,
             second,
@@ -360,7 +360,7 @@ impl SmpteTime {
         self.second as f32
             + ((self.frame as f32 + self.subframe as f32 / 100.0) / self.fps.as_f32())
     }
-    pub fn read(raw: &mut &[u8]) -> Result<SmpteTime> {
+    pub fn read(raw: &mut &[u8]) -> Result<Self> {
         let data = raw
             .split_checked(5)
             .ok_or(err_invalid("failed to read smpte time data"))?;
@@ -371,7 +371,7 @@ impl SmpteTime {
         let second = data[2];
         let frame = data[3];
         let subframe = data[4];
-        Ok(SmpteTime::new(hour, minute, second, frame, subframe, fps)
+        Ok(Self::new(hour, minute, second, frame, subframe, fps)
             .ok_or(err_invalid("invalid smpte time"))?)
     }
     #[cfg(feature = "std")]
@@ -396,7 +396,7 @@ pub enum Fps {
 }
 impl Fps {
     /// Does the conversion from a 2-bit fps code to an `Fps` value.
-    pub fn from_code(code: u2) -> Fps {
+    pub fn from_code(code: u2) -> Self {
         match code.as_int() {
             0 => Fps::Fps24,
             1 => Fps::Fps25,
@@ -415,7 +415,7 @@ impl Fps {
         })
     }
     /// Converts an integer representing the semantic fps to an `Fps` value (ie. `24` -> `Fps24`).
-    pub fn from_int(raw: u8) -> Option<Fps> {
+    pub fn from_int(raw: u8) -> Option<Self> {
         Some(match raw {
             24 => Fps::Fps24,
             25 => Fps::Fps25,
