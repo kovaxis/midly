@@ -46,8 +46,8 @@ impl Smf<'_> {
 }
 impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
     /// Create a new SMF from its raw parts.
-    pub fn new(header: Header, tracks: Vec<T>) -> Result<Smf<'a, T>> {
-        Ok(Smf {
+    pub fn new(header: Header, tracks: Vec<T>) -> Result<Self> {
+        Ok(Self {
             header,
             tracks,
             _lifetime: PhantomData,
@@ -57,7 +57,7 @@ impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
     /// Generic `read` method.
     ///
     /// Prefer the `parse` methods instead, which handle generics for you.
-    pub fn read(raw: &'a [u8]) -> Result<Smf<'a, T>> {
+    pub fn read(raw: &'a [u8]) -> Result<Self> {
         let mut chunks = ChunkIter::read(raw);
         let (header, track_count) = match chunks.next() {
             Some(maybe_chunk) => match maybe_chunk.context(err_invalid("invalid midi header"))? {
@@ -77,7 +77,7 @@ impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
                 err_malformed("singletrack format file has multiple tracks")
             );
         }
-        Ok(Smf::new(header, tracks)?)
+        Ok(Self::new(header, tracks)?)
     }
 
     /// Encode and write the MIDI file into the given generic writer.
@@ -150,8 +150,8 @@ struct ChunkIter<'a> {
     raw: &'a [u8],
 }
 impl<'a> ChunkIter<'a> {
-    fn read(raw: &'a [u8]) -> ChunkIter {
-        ChunkIter { raw }
+    fn read(raw: &'a [u8]) -> Self {
+        Self { raw }
     }
 
     /// Interpret the remaining chunks as tracks.
@@ -182,7 +182,7 @@ impl<'a> ChunkIter<'a> {
 }
 impl<'a> Iterator for ChunkIter<'a> {
     type Item = Result<Chunk<'a>>;
-    fn next(&mut self) -> Option<Result<Chunk<'a>>> {
+    fn next(&mut self) -> Option<Self::Item> {
         //Flip around option and result
         match Chunk::read(&mut self.raw) {
             Ok(Some(chunk)) => Some(Ok(chunk)),
@@ -207,7 +207,7 @@ impl<'a> Chunk<'a> {
     /// Should be called with a byte slice at least as large as the chunk (ideally until EOF).
     /// The slice will be modified to point to the next chunk.
     /// If we're *exactly* at EOF (slice length 0), returns a None signalling no more chunks.
-    fn read(raw: &mut &'a [u8]) -> Result<Option<Chunk<'a>>> {
+    fn read(raw: &mut &'a [u8]) -> Result<Option<Self>> {
         Ok(loop {
             if raw.len() == 0 {
                 break None;
@@ -243,7 +243,7 @@ impl<'a> Chunk<'a> {
 
     /// Interpret the chunk as a track.
     fn parse_into_track<T: TrackRepr<'a>>(
-        chunk_parse_result: Result<Chunk<'a>>,
+        chunk_parse_result: Result<Self>,
     ) -> Option<Result<T>> {
         match chunk_parse_result {
             Ok(Chunk::Track(track)) => Some(T::read(track)),
@@ -313,16 +313,16 @@ pub struct Header {
     pub timing: Timing,
 }
 impl Header {
-    pub fn new(format: Format, timing: Timing) -> Header {
-        Header { format, timing }
+    pub fn new(format: Format, timing: Timing) -> Self {
+        Self { format, timing }
     }
 
     /// Read both the header and the track count.
-    fn read(mut raw: &[u8]) -> Result<(Header, u16)> {
+    fn read(mut raw: &[u8]) -> Result<(Self, u16)> {
         let format = Format::read(&mut raw)?;
         let track_count = u16::read(&mut raw)?;
         let timing = Timing::read(&mut raw)?;
-        Ok((Header::new(format, timing), track_count))
+        Ok((Self::new(format, timing), track_count))
     }
     #[cfg(feature = "std")]
     fn encode(&self, track_count: u16) -> [u8; 6] {
@@ -353,8 +353,8 @@ pub struct TrackIter<'a> {
 }
 impl<'a> TrackRepr<'a> for TrackIter<'a> {
     const USE_MULTITHREADING: bool = false;
-    fn read(raw: &'a [u8]) -> Result<TrackIter<'a>> {
-        Ok(TrackIter {
+    fn read(raw: &'a [u8]) -> Result<Self> {
+        Ok(Self {
             raw,
             running_status: None,
         })
