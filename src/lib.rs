@@ -200,8 +200,8 @@ mod error {
             }
         }
         impl From<ErrorKind> for Error {
-            fn from(inner: ErrorKind) -> Error {
-                Error { inner }
+            fn from(inner: ErrorKind) -> Self {
+                Self { inner }
             }
         }
     }

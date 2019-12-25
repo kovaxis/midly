@@ -233,7 +233,7 @@ pub enum Format {
     Sequential,
 }
 impl Format {
-    pub fn read(raw: &mut &[u8]) -> Result<Format> {
+    pub fn read(raw: &mut &[u8]) -> Result<Self> {
         let format = u16::read(raw)?;
         Ok(match format {
             0 => Format::SingleTrack,
@@ -264,7 +264,7 @@ pub enum Timing {
     Timecode(Fps, u8),
 }
 impl Timing {
-    pub fn read(raw: &mut &[u8]) -> Result<Timing> {
+    pub fn read(raw: &mut &[u8]) -> Result<Self> {
         let raw = u16::read(raw).context(err_invalid("unexpected eof when reading midi timing"))?;
         if bit_range(raw, 15..16) != 0 {
             //Timecode

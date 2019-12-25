@@ -43,7 +43,12 @@ impl Smf<'_> {
     pub fn parse_lazy(raw: &[u8]) -> Result<Smf<TrackIter>> {
         Smf::read(raw)
     }
+
+    pub fn len(&self) -> usize {
+        self.tracks.len()
+    }
 }
+
 impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
     /// Create a new SMF from its raw parts.
     pub fn new(header: Header, tracks: Vec<T>) -> Result<Self> {
