@@ -273,6 +273,7 @@ impl<'a> Chunk<'a> {
     }
     
     /// Write a header chunk into a writer.
+    #[cfg(feature = "std")]
     fn write_header<W: Write>(header: &Header, track_count: usize, out: &mut W) -> IoResult<()> {
         let mut header_chunk = [0; 4 + 4 + 6];
         let track_count = u16::try_from(track_count).map_err(|_| {
@@ -292,6 +293,7 @@ impl<'a> Chunk<'a> {
     /// Write a track chunk into a `Vec`.
     ///
     /// The `Vec` should be empty.
+    #[cfg(feature = "std")]
     fn write_track<T: TrackRepr<'a>>(track: &T, out: &mut Vec<u8>) -> IoResult<()> {
         out.extend_from_slice(b"MTrk\0\0\0\0");
         track.write(out)?;
