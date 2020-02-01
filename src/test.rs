@@ -75,33 +75,32 @@ mod parse {
     }
 
     #[test]
-    fn pi_defer() {
-        test!(("parse_pi_iter","Pi.mid") => {parse_lazy,count});
+    fn sandstorm_defer() {
+        test!(("parse_sandstorm_iter","Sandstorm.mid") => {parse_lazy,count});
     }
     #[test]
-    fn pi_collect() {
-        test!(("parse_pi_vec","Pi.mid") => {parse,len});
+    fn sandstorm_collect() {
+        test!(("parse_sandstorm_vec","Sandstorm.mid") => {parse,len});
     }
 
     #[test]
-    #[cfg_attr(not(feature = "lenient"), should_panic)]
+    #[cfg_attr(feature = "strict", should_panic)]
     fn pidamaged_defer() {
         test!(("parse_pidamaged_iter","PiDamaged.mid") => {parse_lazy,count});
     }
     #[test]
-    #[cfg_attr(not(feature = "lenient"), should_panic)]
+    #[cfg_attr(feature = "strict", should_panic)]
     fn pidamaged_collect() {
         test!(("parse_pidamaged_vec","PiDamaged.mid") => {parse,len});
     }
 
     #[test]
     fn levels_defer() {
-        test!(("parse_levels_iter","LevelsAvicii.mid") => {parse_lazy,count});
+        test!(("parse_levels_iter","Levels.mid") => {parse_lazy,count});
     }
     #[test]
-    #[cfg_attr(feature = "strict", should_panic)]
     fn levels_collect() {
-        test!(("parse_levels_vec","LevelsAvicii.mid") => {parse,len});
+        test!(("parse_levels_vec","Levels.mid") => {parse,len});
     }
 }
 
@@ -118,19 +117,18 @@ mod write {
     }
     
     #[test]
-    fn pi_rewrite() {
-        test_rewrite!("rewrite_pi", "Pi.mid");
+    fn sandstorm_rewrite() {
+        test_rewrite!("rewrite_sandstorm", "Sandstorm.mid");
     }
     
     #[test]
-    #[cfg_attr(not(feature = "lenient"), should_panic)]
+    #[cfg_attr(feature = "strict", should_panic)]
     fn pidamaged_rewrite() {
         test_rewrite!("rewrite_pidamaged", "PiDamaged.mid");
     }
     
     #[test]
-    #[cfg_attr(feature = "strict", should_panic)]
     fn levels_rewrite() {
-        test_rewrite!("rewrite_levels", "LevelsAvicii.mid");
+        test_rewrite!("rewrite_levels", "Levels.mid");
     }
 }
