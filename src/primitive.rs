@@ -54,7 +54,7 @@ macro_rules! int_feature {
             fn read_u7(raw: &mut &[u8]) -> StdResult<$name, ErrorKind> {
                 let bytes = raw.split_checked(mem::size_of::<$inner>())
                     .ok_or(err_invalid("failed to read the expected integer"))?;
-                if !cfg!(feature = "lenient") {
+                if cfg!(feature = "strict") {
                     ensure!(bytes.iter().all(|byte| bit_range(*byte, 7..8)==0), err_malformed("invalid byte with top bit set"));
                 }
                 let raw = bytes.iter().fold(0, |mut acc,byte| {
@@ -62,11 +62,11 @@ macro_rules! int_feature {
                     acc |= bit_range(*byte, 0..7) as $inner;
                     acc
                 });
-                Ok(if cfg!(feature = "lenient") {
+                Ok(if cfg!(feature = "strict") {
+                    Self::try_from(raw).ok_or(err_malformed(stringify!("expected " $name ", found " $inner)))?
+                }else{
                     //Ignore and truncate extra bits
                     Self::from(raw)
-                }else{
-                    Self::try_from(raw).ok_or(err_malformed(stringify!("expected " $name ", found " $inner)))?
                 })
             }
         }
@@ -75,11 +75,11 @@ macro_rules! int_feature {
         impl IntRead for $name {
             fn read(raw: &mut &[u8]) -> StdResult<Self, ErrorKind> {
                 let raw = $inner::read(raw)?;
-                if cfg!(feature = "lenient") {
+                if cfg!(feature = "strict") {
+                    Ok(Self::try_from(raw).ok_or(err_malformed(concat!("expected ", stringify!($name), ", found ", stringify!($inner))))?)
+                }else{
                     //Throw away extra bits
                     Ok(Self::from(raw))
-                }else{
-                    Ok(Self::try_from(raw).ok_or(err_malformed(concat!("expected ", stringify!($name), ", found ", stringify!($inner))))?)
                 }
             }
         }
@@ -145,11 +145,11 @@ impl IntReadBottom7 for u28 {
             let byte = match raw.split_checked(1) {
                 Some(slice) => slice[0],
                 None => {
-                    if cfg!(feature = "lenient") {
+                    if cfg!(feature = "strict") {
+                        bail!(err_malformed("unexpected eof while reading varlen int"))
+                    } else {
                         //Stay with what was read
                         break;
-                    } else {
-                        bail!(err_malformed("unexpected eof while reading varlen int"))
                     }
                 }
             };
@@ -161,11 +161,11 @@ impl IntReadBottom7 for u28 {
                 return Ok(u28::from(int));
             }
         }
-        if cfg!(feature = "lenient") {
+        if cfg!(feature = "strict") {
+            Err(err_malformed("varlen integer larger than 4 bytes"))
+        } else {
             //Use the 4 bytes as-is
             Ok(u28::from(int))
-        } else {
-            Err(err_malformed("varlen integer larger than 4 bytes"))
         }
     }
 }
@@ -204,10 +204,10 @@ pub(crate) fn read_varlen_slice<'a>(raw: &mut &'a [u8]) -> Result<&'a [u8]> {
     Ok(match raw.split_checked(len as usize) {
         Some(slice) => slice,
         None => {
-            if cfg!(feature = "lenient") {
-                mem::replace(raw, &[])
-            } else {
+            if cfg!(feature = "strict") {
                 bail!(err_malformed("incomplete varlen slice"))
+            } else {
+                mem::replace(raw, &[])
             }
         }
     })

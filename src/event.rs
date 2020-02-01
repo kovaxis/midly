@@ -349,7 +349,7 @@ impl<'a> MetaMessage<'a> {
                 if cfg!(feature = "strict") {
                     ensure!(
                         data.len() == 0 || data.len() == 2,
-                        err_pedantic("invalid tracknumber event length")
+                        err_malformed("invalid tracknumber event length")
                     );
                 }
                 if data.len() >= 2 {
@@ -371,7 +371,7 @@ impl<'a> MetaMessage<'a> {
                 if cfg!(feature = "strict") {
                     ensure!(
                         data.len() == 1,
-                        err_pedantic("invalid midichannel event length")
+                        err_malformed("invalid midichannel event length")
                     );
                 }
                 MetaMessage::MidiChannel(u4::read(&mut data)?)
@@ -380,7 +380,7 @@ impl<'a> MetaMessage<'a> {
                 if cfg!(feature = "strict") {
                     ensure!(
                         data.len() == 1,
-                        err_pedantic("invalid midiport event length")
+                        err_malformed("invalid midiport event length")
                     );
                 }
                 MetaMessage::MidiPort(u7::read(&mut data)?)
@@ -389,14 +389,14 @@ impl<'a> MetaMessage<'a> {
                 if cfg!(feature = "strict") {
                     ensure!(
                         data.len() == 0,
-                        err_pedantic("invalid endoftrack event length")
+                        err_malformed("invalid endoftrack event length")
                     );
                 }
                 MetaMessage::EndOfTrack
             }
             0x51 if data.len() >= 3 => {
                 if cfg!(feature = "strict") {
-                    ensure!(data.len() == 3, err_pedantic("invalid tempo event length"));
+                    ensure!(data.len() == 3, err_malformed("invalid tempo event length"));
                 }
                 MetaMessage::Tempo(u24::read(&mut data)?)
             }
@@ -404,7 +404,7 @@ impl<'a> MetaMessage<'a> {
                 if cfg!(feature = "strict") {
                     ensure!(
                         data.len() == 5,
-                        err_pedantic("invalid smpteoffset event length")
+                        err_malformed("invalid smpteoffset event length")
                     );
                 }
                 MetaMessage::SmpteOffset(
@@ -415,7 +415,7 @@ impl<'a> MetaMessage<'a> {
                 if cfg!(feature = "strict") {
                     ensure!(
                         data.len() == 4,
-                        err_pedantic("invalid timesignature event length")
+                        err_malformed("invalid timesignature event length")
                     );
                 }
                 MetaMessage::TimeSignature(
@@ -429,13 +429,7 @@ impl<'a> MetaMessage<'a> {
                 MetaMessage::KeySignature(u8::read(&mut data)? as i8, u8::read(&mut data)? != 0)
             }
             0x7F => MetaMessage::SequencerSpecific(data),
-            _ => {
-                if cfg!(feature = "strict") {
-                    bail!(err_pedantic("unknown meta event type"))
-                } else {
-                    MetaMessage::Unknown(type_byte, data)
-                }
-            }
+            _ => MetaMessage::Unknown(type_byte, data),
         })
     }
     #[cfg(feature = "std")]

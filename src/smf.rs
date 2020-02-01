@@ -67,7 +67,7 @@ impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
             None => Err(err_invalid("empty file")),
         }?;
         let tracks = chunks.parse_as_tracks(track_count)?;
-        if !cfg!(feature = "lenient") {
+        if cfg!(feature = "strict") {
             ensure!(
                 track_count as usize == tracks.len(),
                 err_malformed("file has a different amount of tracks than declared")
@@ -219,11 +219,11 @@ impl<'a> Chunk<'a> {
             let chunkdata = match raw.split_checked(len as usize) {
                 Some(chunkdata) => chunkdata,
                 None => {
-                    if cfg!(feature = "lenient") {
+                    if cfg!(feature = "strict") {
+                        bail!(err_malformed("reached eof before chunk ended"));
+                    } else {
                         //Just use the remainder of the file
                         mem::replace(raw, &[])
-                    } else {
-                        bail!(err_malformed("reached eof before chunk ended"));
                     }
                 }
             };
@@ -249,24 +249,24 @@ impl<'a> Chunk<'a> {
             Ok(Chunk::Track(track)) => Some(T::read(track)),
             //Read another header (?)
             Ok(Chunk::Header(..)) => {
-                if cfg!(feature = "lenient") {
+                if cfg!(feature = "strict") {
+                    Some(Err(err_malformed("found duplicate header").into()))
+                } else {
                     //Ignore duplicate header
                     None
-                } else {
-                    Some(Err(err_malformed("found duplicate header").into()))
                 }
             }
             //Failed to read chunk
             Err(err) => {
-                if cfg!(feature = "lenient") {
-                    //Ignore invalid chunk
-                    None
-                } else {
+                if cfg!(feature = "strict") {
                     Some(
                         Err(err)
                             .context(err_malformed("invalid chunk"))
                             .map_err(|err| err.into()),
                     )
+                } else {
+                    //Ignore invalid chunk
+                    None
                 }
             }
         }
@@ -388,14 +388,14 @@ impl<'a> Iterator for TrackIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if self.raw.len() > 0 {
             let read_result = Event::read(&mut self.raw, &mut self.running_status);
-            if cfg!(feature = "lenient") {
+            if cfg!(feature = "strict") {
+                Some(read_result.context(err_malformed("malformed event")))
+            } else {
                 match read_result {
                     Ok(ev) => Some(Ok(ev)),
                     //Ignore errors
                     Err(_err) => None,
                 }
-            } else {
-                Some(read_result.context(err_malformed("malformed event")))
             }
         } else {
             None

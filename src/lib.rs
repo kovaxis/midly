@@ -79,8 +79,8 @@
 //! # About features
 //!
 //! The mode in which the crate works is configurable through the use of cargo features.
-//! Three optional features are available: `std`, `lenient` and `strict`.
-//! Of these only `std` is enabled by default.
+//! Two optional features are available: `std` and `strict`.
+//! Only `std` is enabled by default.
 //!
 //! - The `std` feature
 //!
@@ -91,20 +91,13 @@
 //!   This feature is enabled by default. Disabling this feature with `default-features = false`
 //!   will make the crate `no_std + alloc`.
 //!
-//! - The `lenient` feature
-//!
-//!   By default `midly` will reject obviously corrupted files, throwing an error with kind
-//!   `ErrorKind::Malformed`.
-//!   With the `lenient` feature enabled the parser will do a "best-effort" attempt at parsing the
-//!   file, and will suppress any of these errors.
-//!   Note that even though the file might parse successfully, entire tracks might be lost.
-//!
 //! - The `strict` feature
 //!
-//!   By default `midly` gives some leeway for uncompliant MIDI files, through the
-//!   `MetaMessage::Unknown` event variant.
-//!   Enabling the `strict` feature will promote these malformed events to an error of kind
-//!   `ErrorKind::Pedantic` instead.
+//!   By default `midly` will allow corrupted files, by throwing away corrupted events or even
+//!   entire corrupted tracks.
+//!   By enabling the `strict` feature the parser will reject SMF uncompliant files and do
+//!   additional checking, throwing errors of the kind `ErrorKind::Malformed` when such a
+//!   situation arises.
 //!
 //! # About generics
 //!
@@ -257,23 +250,12 @@ mod error {
 
         /// Non-fatal error, but the file is clearly corrupted.
         ///
-        /// This kind of error is emitted by default, but by enabling the `lenient` crate feature
-        /// they can be ignored.
+        /// This kind of error is not emitted by default, only if the `strict` crate feature is
+        /// enabled.
         ///
         /// Ignoring these errors can cause whole tracks to be skipped.
         #[fail(display = "malformed smf file: {}", _0)]
         Malformed(&'static str),
-
-        /// Subtle violations to the MIDI spec which occur in the wild, especially in
-        /// regard to midi meta-messages.
-        ///
-        /// This kind of error is ignored by default, but enabling the `strict` feature will
-        /// force the parser to emit them.
-        ///
-        /// Ignoring these errors can cause isolated events to be skipped and reported as
-        /// `MetaMessage::Unknown`.
-        #[fail(display = "uncompliant smf file: {}", _0)]
-        Pedantic(&'static str),
     }
     impl ErrorKind {
         /// Get the informative message on what exact part of the SMF format was not respected.
@@ -281,7 +263,6 @@ mod error {
             match *self {
                 ErrorKind::Invalid(msg) => msg,
                 ErrorKind::Malformed(msg) => msg,
-                ErrorKind::Pedantic(msg) => msg,
             }
         }
     }
@@ -291,9 +272,6 @@ mod error {
     }
     pub fn err_malformed(msg: &'static str) -> ErrorKind {
         ErrorKind::Malformed(msg)
-    }
-    pub fn err_pedantic(msg: &'static str) -> ErrorKind {
-        ErrorKind::Pedantic(msg)
     }
 
     pub trait ResultExt<T> {
@@ -317,7 +295,7 @@ mod error {
 mod prelude {
     pub(crate) use crate::{
         error::{
-            err_invalid, err_malformed, err_pedantic, ErrorKind, Result, ResultExt, StdResult,
+            err_invalid, err_malformed, ErrorKind, Result, ResultExt, StdResult,
         },
         primitive::{u14, u24, u28, u4, u7, IntRead, IntReadBottom7, SplitChecked},
     };

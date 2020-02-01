@@ -7,7 +7,7 @@ include = [
   "/src/*",
   "/Cargo.toml",
 ]
-description = "A pure-rust fast and flexible MIDI parser library, designed for multi-MB files"
+description = "A pure-rust fast and flexible MIDI parser and writer"
 repository = "https://github.com/negamartin/midly"
 readme = "README.md"
 keywords = ["parser", "audio", "midi"]
@@ -21,16 +21,10 @@ default = ["std"]
 # Enabled by default.
 std = ["rayon", "failure/std"]
 
-# Do a "best-attempt" at decoding the file, even if it's obviously corrupted.
+# Reject corrupted or uncompliant files, even if they could be read anyway.
 #
-# No `ErrorKind::Malformed` errors will be raised.
-# Tracks with invalid events will be dropped.
-lenient = []
-
-# Reject files that bend the standard.
-#
-# `ErrorKind::Pedantic` errors will be raised.
-# The `MetaEvent::Unknown` event kind is promoted to a pedantic error.
+# `ErrorKind::Malformed` errors will be raised if corruption or uncompliance is
+# detected.
 strict = []
 
 [dependencies]
