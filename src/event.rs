@@ -24,11 +24,11 @@ impl<'a> Event<'a> {
     pub fn read(
         raw: &mut &'a [u8],
         running_status: &mut Option<u8>,
-    ) -> Result<(&'a [u8], Event<'a>)> {
+    ) -> Result<Event<'a>> {
         let delta = u28::read_u7(raw).context(err_invalid("failed to read event deltatime"))?;
-        let (raw, kind) =
+        let kind =
             EventKind::read(raw, running_status).context(err_invalid("failed to parse event"))?;
-        Ok((raw, Event { delta, kind }))
+        Ok(Event { delta, kind })
     }
     #[cfg(feature = "std")]
     pub(crate) fn write<W: Write>(
@@ -75,7 +75,7 @@ impl<'a> EventKind<'a> {
     pub fn parse(
         raw: &mut &'a [u8],
         running_status: &mut Option<u8>,
-    ) -> Result<(&'a [u8], EventKind<'a>)> {
+    ) -> Result<EventKind<'a>> {
         let (old_raw, old_rs) = (*raw, *running_status);
         let maybe_ev = Self::read(raw, running_status);
         if let Err(_) = maybe_ev {
@@ -88,9 +88,7 @@ impl<'a> EventKind<'a> {
     fn read(
         raw: &mut &'a [u8],
         running_status: &mut Option<u8>,
-    ) -> Result<(&'a [u8], EventKind<'a>)> {
-        //Keep the beggining of the old slice
-        let old_slice = *raw;
+    ) -> Result<EventKind<'a>> {
         //Read status
         let mut status = *raw.get(0).ok_or(err_invalid("failed to read status"))?;
         if status < 0x80 {
@@ -131,12 +129,7 @@ impl<'a> EventKind<'a> {
             ),
             _ => bail!(err_invalid("invalid event status")),
         };
-        //The `raw` slice has moved forward by exactly the amount of bytes that form this midi
-        //event
-        //Therefore the source slice can be determined by rescuing these consumed bytes
-        let len = raw.as_ptr() as usize - old_slice.as_ptr() as usize;
-        let source_bytes = &old_slice[0..len];
-        Ok((source_bytes, kind))
+        Ok(kind)
     }
     
     /// Writes a single event to the given output writer.

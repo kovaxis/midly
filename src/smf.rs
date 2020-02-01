@@ -353,6 +353,22 @@ pub struct TrackIter<'a> {
     raw: &'a [u8],
     running_status: Option<u8>,
 }
+impl<'a> TrackIter<'a> {
+    /// Get the remaining unread bytes.
+    pub fn unread(&self) -> &'a [u8] {
+        self.raw
+    }
+    
+    /// Get the current running status of the track.
+    pub fn running_status(&self) -> Option<u8> {
+        self.running_status
+    }
+    
+    /// Set the current running status of the track.
+    pub fn set_running_status(&mut self, running_status: Option<u8>) {
+        self.running_status = running_status;
+    }
+}
 impl<'a> TrackRepr<'a> for TrackIter<'a> {
     const USE_MULTITHREADING: bool = false;
     fn read(raw: &'a [u8]) -> Result<TrackIter<'a>> {
@@ -368,7 +384,7 @@ impl<'a> TrackRepr<'a> for TrackIter<'a> {
     }
 }
 impl<'a> Iterator for TrackIter<'a> {
-    type Item = Result<(&'a [u8], Event<'a>)>;
+    type Item = Result<Event<'a>>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.raw.len() > 0 {
             let read_result = Event::read(&mut self.raw, &mut self.running_status);
@@ -392,7 +408,15 @@ impl<'a> Iterator for TrackIter<'a> {
 impl<'a> TrackRepr<'a> for Vec<(&'a [u8], Event<'a>)> {
     const USE_MULTITHREADING: bool = true;
     fn read(raw: &'a [u8]) -> Result<Self> {
-        TrackIter::read(raw)?.collect::<Result<Vec<_>>>()
+        let mut events = Vec::with_capacity(1024);
+        let mut track_iter = TrackIter::read(raw)?;
+        let mut last_raw = track_iter.unread();
+        while let Some(ev) = track_iter.next() {
+            let raw_ev = &last_raw[..last_raw.len()-track_iter.unread().len()];
+            last_raw = track_iter.unread();
+            events.push((raw_ev, ev?));
+        }
+        Ok(events)
     }
     #[cfg(feature = "std")]
     fn write<W: Write>(&self, out: &mut W) -> IoResult<()> {
@@ -408,9 +432,11 @@ impl<'a> TrackRepr<'a> for Vec<(&'a [u8], Event<'a>)> {
 impl<'a> TrackRepr<'a> for Vec<Event<'a>> {
     const USE_MULTITHREADING: bool = true;
     fn read(raw: &'a [u8]) -> Result<Self> {
-        TrackIter::read(raw)?
-            .map(|res| res.map(|(_, ev)| ev))
-            .collect::<Result<Vec<_>>>()
+        let mut events = Vec::with_capacity(1024);
+        for ev in TrackIter::read(raw)? {
+            events.push(ev?);
+        }
+        Ok(events)
     }
     #[cfg(feature = "std")]
     fn write<W: Write>(&self, out: &mut W) -> IoResult<()> {
