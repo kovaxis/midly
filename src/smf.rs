@@ -375,6 +375,11 @@ impl<'a> TrackIter<'a> {
         self.running_status
     }
     
+    /// Modify the current running status of the track.
+    pub fn running_status_mut(&mut self) -> &mut Option<u8> {
+        &mut self.running_status
+    }
+
     /// Set the current running status of the track.
     pub fn set_running_status(&mut self, running_status: Option<u8>) {
         self.running_status = running_status;
