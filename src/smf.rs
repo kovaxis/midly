@@ -59,7 +59,7 @@ impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
             _lifetime: PhantomData,
         })
     }
-    
+
     /// Generic `read` method.
     ///
     /// Prefer the `parse` methods instead, which handle generics for you.
@@ -86,7 +86,7 @@ impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
         }
         Ok(Smf::new(header, tracks)?)
     }
-    
+
     /// Encode and write the MIDI file into the given generic writer.
     ///
     /// This function will bubble up errors from the underlying writer and produce `InvalidInput`
@@ -98,24 +98,24 @@ impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
     pub fn write<W: Write>(&self, out: &mut W) -> IoResult<()> {
         //Write the header first
         Chunk::write_header(&self.header, self.tracks.len(), out)?;
-        
+
         //Try to write the file in parallel
         #[cfg(feature = "std")]
         {
             if T::USE_MULTITHREADING {
                 use rayon::prelude::*;
-                
+
                 //Write out the tracks in parallel into several different buffers
                 let track_chunks = self
                     .tracks
                     .par_iter()
                     .map(|track| {
                         let mut track_chunk = Vec::with_capacity(8 * 1024);
-                    Chunk::write_track(track, &mut track_chunk)?;
-                    Ok(track_chunk)
+                        Chunk::write_track(track, &mut track_chunk)?;
+                        Ok(track_chunk)
                     })
                     .collect::<IoResult<Vec<_>>>()?;
-                
+
                 //Write down the tracks sequentially and in order
                 for track_chunk in track_chunks {
                     out.write_all(&track_chunk)?;
@@ -123,7 +123,7 @@ impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
                 return Ok(());
             }
         }
-        
+
         //Fall back to writing the file serially
         //Write tracks into a reusable buffer before writing them out
         let mut track_chunk = Vec::with_capacity(8 * 1024);
@@ -135,7 +135,7 @@ impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
         }
         Ok(())
     }
-    
+
     /// Encode and save the MIDI file to the given path.
     ///
     /// Also see the `Smf::write` method.
@@ -143,12 +143,12 @@ impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
     pub fn save<P: AsRef<std::path::Path>>(&self, path: P) -> IoResult<()> {
         self.save_impl(path.as_ref())
     }
-    
+
     /// Forces the `write` function to be monomorphized with `W = File`.
     #[cfg(feature = "std")]
     fn save_impl(&self, path: &std::path::Path) -> IoResult<()> {
         use std::fs::File;
-        
+
         let mut out = File::create(path)?;
         self.write(&mut out)?;
         Ok(())
@@ -282,7 +282,7 @@ impl<'a> Chunk<'a> {
             }
         }
     }
-    
+
     /// Write a header chunk into a writer.
     #[cfg(feature = "std")]
     fn write_header<W: Write>(header: &Header, track_count: usize, out: &mut W) -> IoResult<()> {
@@ -300,7 +300,7 @@ impl<'a> Chunk<'a> {
         out.write_all(&header_chunk[..])?;
         Ok(())
     }
-    
+
     /// Write a track chunk into a `Vec`.
     ///
     /// The `Vec` should be empty.
@@ -347,6 +347,7 @@ impl Header {
     }
 }
 
+/// Anything that works as a collection of [`Event`](struct.Event.html)s.
 /// Allows for customization on how tracks are stored in memory.
 pub trait TrackRepr<'a>: Sized + Send + Sync {
     const USE_MULTITHREADING: bool;
@@ -355,10 +356,11 @@ pub trait TrackRepr<'a>: Sized + Send + Sync {
     fn write<W: Write>(&self, out: &mut W) -> IoResult<()>;
 }
 
-/// Allows deferring track parsing for later, on a per-event basis.
+/// An iterator of events over a single track.
+/// Allows deferring the parsing of tracks for later, on an on-demand basis.
 ///
-/// This is the best option when traversing a track once or for saving memory.
-/// This `struct` is very light, so it can be copied freely.
+/// This is the best option when traversing a track once or avoiding memory allocations.
+/// This `struct` is very light, so it can be cloned freely.
 #[derive(Clone, Debug)]
 pub struct TrackIter<'a> {
     raw: &'a [u8],
@@ -369,12 +371,12 @@ impl<'a> TrackIter<'a> {
     pub fn unread(&self) -> &'a [u8] {
         self.raw
     }
-    
+
     /// Get the current running status of the track.
     pub fn running_status(&self) -> Option<u8> {
         self.running_status
     }
-    
+
     /// Modify the current running status of the track.
     pub fn running_status_mut(&mut self) -> &mut Option<u8> {
         &mut self.running_status

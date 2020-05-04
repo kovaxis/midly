@@ -229,14 +229,22 @@ pub(crate) fn write_varlen_slice<W: Write>(slice: &[u8], out: &mut W) -> IoResul
     Ok(())
 }
 
-/// The way tracks should be laid out when playing back this SMF file.
+/// The order in which tracks should be laid out when playing back this SMF file.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Format {
     /// This file should have a single track only.
     ///
-    /// If the `strict` feature is enabled, an error is raised if the format is `Format::SingleTrack`
+    /// If the `strict` feature is enabled, an error is raised if the format is
+    /// `Format::SingleTrack` and there is not exactly one track.
     SingleTrack,
+    /// This file has several tracks that should be played simultaneously.
+    ///
+    /// Usually the first track controls tempo and other song metadata.
     Parallel,
+    /// This file has several tracks, each one a separate song.
+    ///
+    /// The tracks should be played sequentially, as completely separate MIDI tracks packaged
+    /// within a single SMF file.
     Sequential,
 }
 impl Format {
@@ -265,6 +273,9 @@ impl Format {
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Timing {
     /// Specifies ticks/beat as a 15-bit integer.
+    ///
+    /// The length of a beat is not standard, so in order to fully describe the length of a MIDI
+    /// tick the [`MetaMessage::Tempo`](enum.MetaMessage.html#Tempo.v) event should be present.
     Metrical(u15),
     /// Specifies ticks/second by dividing a second into frames and then into subframes.
     /// Therefore the length of of a tick is `1/fps/subframe`.
@@ -395,11 +406,18 @@ impl SmpteTime {
     }
 }
 
+/// One of the four FPS values available for SMPTE times, as defined by the MIDI standard.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Fps {
+    /// 24 frames per second.
     Fps24,
+    /// 25 frames per second.
     Fps25,
+    /// Actually `29.97 = 30 / 1.001` frames per second.
+    ///
+    /// Quite an exotic value because of interesting historical reasons.
     Fps29,
+    /// 30 frames per second.
     Fps30,
 }
 impl Fps {
@@ -441,7 +459,7 @@ impl Fps {
             Fps::Fps30 => 30,
         }
     }
-    /// Get the actual f32 fps out.
+    /// Get the actual `f32` fps out.
     pub fn as_f32(self) -> f32 {
         match self.as_int() {
             24 => 24.0,

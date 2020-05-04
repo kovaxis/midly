@@ -33,7 +33,7 @@ let mut smf = Smf::parse(&data).unwrap();
 println!("midi file has {} tracks!", smf.tracks.len());
 
 // Modify the file
-smf.header.format = midly::Format::Parallel;
+smf.header.format = midly::Format::Sequential;
 
 // Save it back
 smf.save("PiRewritten.mid").unwrap();
