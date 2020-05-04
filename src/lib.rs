@@ -53,6 +53,7 @@
 //! Saving SMF files is as simple as using the `Smf::save` method:
 //!
 //! ```rust
+//! # #[cfg(feature = "std")] {
 //! # use std::fs;
 //! # use midly::Smf;
 //! // Parse file
@@ -61,11 +62,13 @@
 //!
 //! // Rewrite file
 //! smf.save("test-asset/ClementiRewritten.mid").unwrap();
+//! # }
 //! ```
 //!
 //! SMF files can also be written to an arbitrary writer:
 //!
 //! ```rust
+//! # #[cfg(feature = "std")] {
 //! # use std::fs;
 //! # use midly::Smf;
 //! # let bytes = fs::read("test-asset/Clementi.mid").unwrap();
@@ -74,6 +77,7 @@
 //! smf.write(&mut in_memory).unwrap();
 //!
 //! println!("midi file fits in {} bytes!", in_memory.len());
+//! # }
 //! ```
 //!
 //! # About features
@@ -93,8 +97,8 @@
 //!
 //! - The `strict` feature
 //!
-//!   By default `midly` will allow corrupted files, by throwing away corrupted events or even
-//!   entire corrupted tracks.
+//!   By default `midly` will attempt to plow through non-standard and even obviously corrupted
+//!   files, throwing away any unreadable data, or even entire tracks in the worst scenario.
 //!   By enabling the `strict` feature the parser will reject SMF uncompliant files and do
 //!   additional checking, throwing errors of the kind `ErrorKind::Malformed` when such a
 //!   situation arises.
@@ -113,8 +117,7 @@
 //!
 //! The MIDI standard is independent from the Standard Midi File standard, even though the latter
 //! depends on the former.
-//! This means that raw, non-SMF, MIDI streams exist, for example those generating by MIDI
-//! keyboards.
+//! A raw, non-SMF MIDI streams would be a MIDI keyboard connected through USB for example.
 //!
 //! `midly` provides partial support for parsing these MIDI messages, through the
 //! [`EventKind::parse`](enum.EventKind.html#method.parse) method, however most System Common
@@ -139,6 +142,7 @@ macro_rules! ensure {
 }
 
 /// All of the errors this crate produces.
+#[macro_use]
 mod error {
     use core::fmt;
     use failure::Fail;
@@ -153,9 +157,9 @@ mod error {
             fn kind(&self) -> ErrorKind {
                 *self.inner.get_context()
             }
-            fn chain_ctx(self, ctx: ErrorKind) -> Error {
+            fn chain_ctx(self, ctx: &'static ErrorKind) -> Error {
                 Error {
-                    inner: Fail::context(self, ctx),
+                    inner: Fail::context(self, *ctx),
                 }
             }
         }
@@ -168,10 +172,10 @@ mod error {
                 self.inner.backtrace()
             }
         }
-        impl From<ErrorKind> for Error {
-            fn from(kind: ErrorKind) -> Error {
+        impl From<&'static ErrorKind> for Error {
+            fn from(kind: &'static ErrorKind) -> Error {
                 Error {
-                    inner: Context::new(kind),
+                    inner: Context::new(*kind),
                 }
             }
         }
@@ -182,18 +186,19 @@ mod error {
         use super::{Error, ErrorExt, ErrorKind};
         use failure::Fail;
 
-        pub type ErrorInner = ErrorKind;
+        /// In release mode errors are just a thin pointer.
+        pub type ErrorInner = &'static ErrorKind;
         impl Fail for Error {}
         impl ErrorExt for Error {
             fn kind(&self) -> ErrorKind {
-                self.inner
+                *self.inner
             }
-            fn chain_ctx(self, ctx: ErrorKind) -> Error {
+            fn chain_ctx(self, ctx: &'static ErrorKind) -> Error {
                 Error { inner: ctx }
             }
         }
-        impl From<ErrorKind> for Error {
-            fn from(inner: ErrorKind) -> Error {
+        impl From<&'static ErrorKind> for Error {
+            fn from(inner: &'static ErrorKind) -> Error {
                 Error { inner }
             }
         }
@@ -228,17 +233,16 @@ mod error {
 
     trait ErrorExt {
         fn kind(&self) -> ErrorKind;
-        fn chain_ctx(self, ctx: ErrorKind) -> Error;
+        fn chain_ctx(self, ctx: &'static ErrorKind) -> Error;
     }
 
     /// The type of error that occurred while parsing.
     ///
     /// As a library consumer, detailed errors about what specific part of the MIDI spec was
     /// violated are not very useful.
-    /// For this reason, errors are broadly categorized into 3 classes, and specific error info is
+    /// For this reason, errors are broadly categorized into 2 classes, and specific error info is
     /// provided as a non-normative string literal.
     #[derive(Copy, Clone, Debug, Fail)]
-    #[fail(display = "{}", _0)]
     pub enum ErrorKind {
         /// Fatal errors while reading the file. It is likely that the file is not a MIDI file or
         /// is severely corrupted.
@@ -267,23 +271,29 @@ mod error {
         }
     }
 
-    pub fn err_invalid(msg: &'static str) -> ErrorKind {
-        ErrorKind::Invalid(msg)
+    macro_rules! err_invalid {
+        ($msg:expr) => {{
+            const ERR_KIND: &'static ErrorKind = &ErrorKind::Invalid($msg);
+            ERR_KIND
+        }};
     }
-    pub fn err_malformed(msg: &'static str) -> ErrorKind {
-        ErrorKind::Malformed(msg)
+    macro_rules! err_malformed {
+        ($msg:expr) => {{
+            const ERR_KIND: &'static ErrorKind = &ErrorKind::Malformed($msg);
+            ERR_KIND
+        }};
     }
 
     pub trait ResultExt<T> {
-        fn context(self, ctx: ErrorKind) -> StdResult<T, Error>;
+        fn context(self, ctx: &'static ErrorKind) -> StdResult<T, Error>;
     }
     impl<T> ResultExt<T> for StdResult<T, Error> {
-        fn context(self, ctx: ErrorKind) -> StdResult<T, Error> {
+        fn context(self, ctx: &'static ErrorKind) -> StdResult<T, Error> {
             self.map_err(|err| err.chain_ctx(ctx))
         }
     }
-    impl<T> ResultExt<T> for StdResult<T, ErrorKind> {
-        fn context(self, ctx: ErrorKind) -> StdResult<T, Error> {
+    impl<T> ResultExt<T> for StdResult<T, &'static ErrorKind> {
+        fn context(self, ctx: &'static ErrorKind) -> StdResult<T, Error> {
             self.map_err(|errkind| Error::from(errkind).chain_ctx(ctx))
         }
     }
@@ -294,15 +304,13 @@ mod error {
 
 mod prelude {
     pub(crate) use crate::{
-        error::{
-            err_invalid, err_malformed, ErrorKind, Result, ResultExt, StdResult,
-        },
+        error::{ErrorKind, Result, ResultExt, StdResult},
         primitive::{u14, u24, u28, u4, u7, IntRead, IntReadBottom7, SplitChecked},
     };
     pub use alloc::vec::Vec;
-    pub use core::{marker::PhantomData, mem, ops, convert::TryFrom};
+    pub use core::{convert::TryFrom, marker::PhantomData, mem, ops};
     #[cfg(feature = "std")]
-    pub use std::io::{self, Write, Error as IoError, Result as IoResult};
+    pub use std::io::{self, Error as IoError, Result as IoResult, Write};
 
     pub fn bit_range<T>(val: T, range: ops::Range<u32>) -> T
     where
@@ -317,15 +325,9 @@ mod prelude {
     }
 }
 
-/// All sort of events and their parsing.
 mod event;
-
-/// Simple building-block data that can be read in one go.
-/// All are stored in a fixed size (`Sized`) representation.
-/// Also, primitives advance the file pointer when read.
 mod primitive;
-
-/// Parsing for SMF files, chunks and tracks.
+mod riff;
 mod smf;
 
 pub use crate::{
@@ -335,7 +337,7 @@ pub use crate::{
     smf::{Header, Smf, TrackIter, TrackRepr},
 };
 
-/// Special-length integers used by the MIDI standard.
+/// Exotically-sized integers used by the MIDI standard.
 pub mod number {
     pub use crate::primitive::{u14, u15, u24, u28, u4, u7};
 }

@@ -1,3 +1,5 @@
+//! All sort of events and their parsers.
+
 #[cfg(feature = "std")]
 use crate::primitive::write_varlen_slice;
 use crate::{
@@ -5,31 +7,33 @@ use crate::{
     primitive::{read_varlen_slice, SmpteTime},
 };
 
-/// Represents a fully parsed track event, with delta time.
+/// Represents a parsed SMF track event.
+///
+/// Consists of a delta time with respect to the previous event and the actual MIDI event.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct Event<'a> {
+    /// How many MIDI ticks after the previous event should this event fire off.
     pub delta: u28,
+    /// The type of event along with event-specific data.
     pub kind: EventKind<'a>,
 }
 impl<'a> Event<'a> {
     /// Read an `Smf` track event from raw track data.
     ///
-    /// The received raw slice should extend to the very end of the track.
+    /// The first argument is a mutable reference to a raw byte slice: the track to parse.
+    /// The bytes corresponding to this event are removed from the slice by advancing it to the
+    /// next event.
     ///
-    /// The first return value is a prefix of the input slice, containing the bytes that form
-    /// the first event in the track.
-    /// The second return value is this very same event, but parsed.
-    ///
-    /// The `raw` slice will be modified and have this prefix removed.
-    pub fn read(
-        raw: &mut &'a [u8],
-        running_status: &mut Option<u8>,
-    ) -> Result<Event<'a>> {
-        let delta = u28::read_u7(raw).context(err_invalid("failed to read event deltatime"))?;
+    /// The second argument is a mutable reference to the current "running status".
+    /// Running status allows consecutive events to share their status if there is no status change,
+    /// so running status should be shared across calls to `Event::read`.
+    pub fn read(raw: &mut &'a [u8], running_status: &mut Option<u8>) -> Result<Event<'a>> {
+        let delta = u28::read_u7(raw).context(err_invalid!("failed to read event deltatime"))?;
         let kind =
-            EventKind::read(raw, running_status).context(err_invalid("failed to parse event"))?;
+            EventKind::read(raw, running_status).context(err_invalid!("failed to parse event"))?;
         Ok(Event { delta, kind })
     }
+
     #[cfg(feature = "std")]
     pub(crate) fn write<W: Write>(
         &self,
@@ -42,7 +46,10 @@ impl<'a> Event<'a> {
     }
 }
 
-/// Represents the different kinds of events.
+/// Represents the different kinds of SMF events and their associated data.
+///
+/// It notably does *not* include the timing of the event, the `Event` struct is responsible for
+/// this.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum EventKind<'a> {
     /// A standard MIDI message bound to a channel.
@@ -59,11 +66,10 @@ impl<'a> EventKind<'a> {
     /// Reads a single event from the given stream.
     /// Use this method when reading raw MIDI messages from a stream.
     ///
-    /// Returns the event read and the raw bytes that make up the event, taken directly from the
-    /// source bytes.
+    /// Returns the event read and a reference to the raw bytes that make up this event.
     ///
-    /// The running status byte is used to fill in any missing message status (a process known
-    /// as "running status").
+    /// The running status byte is used to fill in any missing message status (as mandated in the
+    /// MIDI spec).
     /// This running status should be conserved across calls to `EventKind::parse`, and should be
     /// unique per-midi-stream.
     /// Initially it should be set to `None`.
@@ -72,29 +78,23 @@ impl<'a> EventKind<'a> {
     /// In case of success the byteslice is advanced to the next event, and the running status
     /// might be changed to a new status.
     /// In case of error no changes are made to these values.
-    pub fn parse(
-        raw: &mut &'a [u8],
-        running_status: &mut Option<u8>,
-    ) -> Result<EventKind<'a>> {
+    pub fn parse(raw: &mut &'a [u8], running_status: &mut Option<u8>) -> Result<EventKind<'a>> {
         let (old_raw, old_rs) = (*raw, *running_status);
         let maybe_ev = Self::read(raw, running_status);
-        if let Err(_) = maybe_ev {
+        if let Err(_) = &maybe_ev {
             *raw = old_raw;
             *running_status = old_rs;
         }
         maybe_ev
     }
 
-    fn read(
-        raw: &mut &'a [u8],
-        running_status: &mut Option<u8>,
-    ) -> Result<EventKind<'a>> {
+    fn read(raw: &mut &'a [u8], running_status: &mut Option<u8>) -> Result<EventKind<'a>> {
         //Read status
-        let mut status = *raw.get(0).ok_or(err_invalid("failed to read status"))?;
+        let mut status = *raw.get(0).ok_or(err_invalid!("failed to read status"))?;
         if status < 0x80 {
             //Running status!
-            status = running_status.ok_or(err_invalid(
-                "event missing status with no running status active",
+            status = running_status.ok_or(err_invalid!(
+                "event missing status with no running status active"
             ))?;
         } else {
             //Advance slice 1 byte to consume status. Note that because we already did `get()`, we
@@ -109,35 +109,36 @@ impl<'a> EventKind<'a> {
                 EventKind::Midi {
                     channel,
                     message: MidiMessage::read(raw, status)
-                        .context(err_invalid("failed to read midi message"))?,
+                        .context(err_invalid!("failed to read midi message"))?,
                 }
             }
             0xF0 => {
                 *running_status = None;
                 EventKind::SysEx(
-                    read_varlen_slice(raw).context(err_invalid("failed to read sysex event"))?,
+                    read_varlen_slice(raw).context(err_invalid!("failed to read sysex event"))?,
                 )
             }
             0xF7 => {
                 *running_status = None;
                 EventKind::Escape(
-                    read_varlen_slice(raw).context(err_invalid("failed to read escape event"))?,
+                    read_varlen_slice(raw).context(err_invalid!("failed to read escape event"))?,
                 )
             }
             0xFF => EventKind::Meta(
-                MetaMessage::read(raw).context(err_invalid("failed to read meta event"))?,
+                MetaMessage::read(raw).context(err_invalid!("failed to read meta event"))?,
             ),
-            _ => bail!(err_invalid("invalid event status")),
+            _ => bail!(err_invalid!("invalid event status")),
         };
         Ok(kind)
     }
-    
+
     /// Writes a single event to the given output writer.
     ///
     /// `running_status` keeps track of the last MIDI status, in order to make proper use of
-    /// running status. It should be shared between sequential calls, and should initially be set
-    /// to `None`. If you wish to disable running status, pass in `&mut None` to every call to
-    /// this method.
+    /// running status. It should be shared between consecutive calls, and should initially be set
+    /// to `None`.
+    ///
+    /// If you wish to disable running status, pass in `&mut None` to all calls to this method.
     #[cfg(feature = "std")]
     pub fn write<W: Write>(&self, running_status: &mut Option<u8>, out: &mut W) -> IoResult<()> {
         //Running Status rules:
@@ -267,7 +268,7 @@ impl MidiMessage {
                     bend: u14::from(msb << 7 | lsb),
                 }
             }
-            _ => bail!(err_invalid("invalid midi message status")),
+            _ => bail!(err_invalid!("invalid midi message status")),
         })
     }
     /// Get the raw status nibble for this MIDI message type.
@@ -302,10 +303,12 @@ impl MidiMessage {
     }
 }
 
+/// A "meta message", as defined by the SMF spec.
+/// These events carry metadata about the track, such as tempo, time signature, copyright, etc...
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum MetaMessage<'a> {
     /// For `Format::Sequential` MIDI file types, `TrackNumber` can be empty, and defaults to
-    /// track index.
+    /// the track index.
     TrackNumber(Option<u16>),
     Text(&'a [u8]),
     Copyright(&'a [u8]),
@@ -326,7 +329,7 @@ pub enum MetaMessage<'a> {
     /// are no guarantees.
     Tempo(u24),
     SmpteOffset(SmpteTime),
-    /// In order of the MIDI specification, numerator, denominator, midi clocks per click, 32nd
+    /// In order of the MIDI specification, numerator, denominator, MIDI clocks per click, 32nd
     /// notes per quarter
     TimeSignature(u8, u8, u8, u8),
     /// As in the MIDI specification, negative numbers indicate number of flats and positive
@@ -334,22 +337,23 @@ pub enum MetaMessage<'a> {
     /// `false` indicates a major scale, `true` indicates a minor scale.
     KeySignature(i8, bool),
     SequencerSpecific(&'a [u8]),
-    /// An unknown meta-message, unconforming to the spec.
+    /// An unknown or malformed meta-message, unconforming to the spec.
     ///
-    /// This event is not generated with the `strict` feature enabled.
+    /// If the `strict` feature is enabled this variant will never be generated: an error will be
+    /// raised if this kind of meta message is encountered.
     Unknown(u8, &'a [u8]),
 }
 impl<'a> MetaMessage<'a> {
     fn read(raw: &mut &'a [u8]) -> Result<MetaMessage<'a>> {
-        let type_byte = u8::read(raw).context(err_invalid("failed to read meta message type"))?;
+        let type_byte = u8::read(raw).context(err_invalid!("failed to read meta message type"))?;
         let mut data =
-            read_varlen_slice(raw).context(err_invalid("failed to read meta message data"))?;
+            read_varlen_slice(raw).context(err_invalid!("failed to read meta message data"))?;
         Ok(match type_byte {
             0x00 => MetaMessage::TrackNumber({
                 if cfg!(feature = "strict") {
                     ensure!(
                         data.len() == 0 || data.len() == 2,
-                        err_malformed("invalid tracknumber event length")
+                        err_malformed!("invalid tracknumber event length")
                     );
                 }
                 if data.len() >= 2 {
@@ -371,7 +375,7 @@ impl<'a> MetaMessage<'a> {
                 if cfg!(feature = "strict") {
                     ensure!(
                         data.len() == 1,
-                        err_malformed("invalid midichannel event length")
+                        err_malformed!("invalid midichannel event length")
                     );
                 }
                 MetaMessage::MidiChannel(u4::read(&mut data)?)
@@ -380,7 +384,7 @@ impl<'a> MetaMessage<'a> {
                 if cfg!(feature = "strict") {
                     ensure!(
                         data.len() == 1,
-                        err_malformed("invalid midiport event length")
+                        err_malformed!("invalid midiport event length")
                     );
                 }
                 MetaMessage::MidiPort(u7::read(&mut data)?)
@@ -389,14 +393,17 @@ impl<'a> MetaMessage<'a> {
                 if cfg!(feature = "strict") {
                     ensure!(
                         data.len() == 0,
-                        err_malformed("invalid endoftrack event length")
+                        err_malformed!("invalid endoftrack event length")
                     );
                 }
                 MetaMessage::EndOfTrack
             }
             0x51 if data.len() >= 3 => {
                 if cfg!(feature = "strict") {
-                    ensure!(data.len() == 3, err_malformed("invalid tempo event length"));
+                    ensure!(
+                        data.len() == 3,
+                        err_malformed!("invalid tempo event length")
+                    );
                 }
                 MetaMessage::Tempo(u24::read(&mut data)?)
             }
@@ -404,18 +411,19 @@ impl<'a> MetaMessage<'a> {
                 if cfg!(feature = "strict") {
                     ensure!(
                         data.len() == 5,
-                        err_malformed("invalid smpteoffset event length")
+                        err_malformed!("invalid smpteoffset event length")
                     );
                 }
                 MetaMessage::SmpteOffset(
-                    SmpteTime::read(&mut data).context(err_invalid("failed to read smpte time"))?,
+                    SmpteTime::read(&mut data)
+                        .context(err_invalid!("failed to read smpte time"))?,
                 )
             }
             0x58 if data.len() >= 4 => {
                 if cfg!(feature = "strict") {
                     ensure!(
                         data.len() == 4,
-                        err_malformed("invalid timesignature event length")
+                        err_malformed!("invalid timesignature event length")
                     );
                 }
                 MetaMessage::TimeSignature(

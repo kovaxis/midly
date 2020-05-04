@@ -38,7 +38,7 @@ macro_rules! test {
 macro_rules! test_rewrite {
     ($name:expr, $file:expr) => {{
         println!("parsing...");
-        open!{smf: [parse] $file};
+        open! {smf: [parse] $file};
         println!("rewriting...");
         let mut file = Vec::with_capacity(16 * 1024);
         time(concat!($name, "[rewrite]"), || {
@@ -48,7 +48,10 @@ macro_rules! test_rewrite {
         let clone_smf = time(concat!($name, "[reparse]"), || {
             Smf::parse(&file).expect("failed to reparse midi file")
         });
-        assert_eq!(smf, clone_smf, "reparsed midi file is not identical to the original");
+        assert_eq!(
+            smf, clone_smf,
+            "reparsed midi file is not identical to the original"
+        );
     }};
 }
 
@@ -102,6 +105,15 @@ mod parse {
     fn levels_collect() {
         test!(("parse_levels_vec","Levels.mid") => {parse,len});
     }
+
+    #[test]
+    fn beethoven_defer() {
+        test!(("parse_beethoven_iter","Beethoven.rmi") => {parse_lazy,count});
+    }
+    #[test]
+    fn beethoven_collect() {
+        test!(("parse_beethoven_vec","Beethoven.rmi") => {parse,len});
+    }
 }
 
 /// Test the MIDI writer and parser.
@@ -110,23 +122,23 @@ mod parse {
 #[cfg(feature = "std")]
 mod write {
     use super::*;
-    
+
     #[test]
     fn clementi_rewrite() {
         test_rewrite!("rewrite_clementi", "Clementi.mid");
     }
-    
+
     #[test]
     fn sandstorm_rewrite() {
         test_rewrite!("rewrite_sandstorm", "Sandstorm.mid");
     }
-    
+
     #[test]
     #[cfg_attr(feature = "strict", should_panic)]
     fn pidamaged_rewrite() {
         test_rewrite!("rewrite_pidamaged", "PiDamaged.mid");
     }
-    
+
     #[test]
     fn levels_rewrite() {
         test_rewrite!("rewrite_levels", "Levels.mid");

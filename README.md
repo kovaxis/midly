@@ -14,10 +14,10 @@ First add the following line to your `Cargo.toml` file, under the
 `[dependencies]` section:
 
 ```toml
-midly = "0.3"
+midly = "0.4"
 ```
 
-Then use the `Smf` type in the root crate:
+Then use the `Smf` type in the crate root:
 
 ```rust
 use std::fs;

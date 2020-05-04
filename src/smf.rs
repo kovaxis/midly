@@ -1,12 +1,16 @@
+//! Specific to the SMF packaging of MIDI streams.
+
 use crate::{
     event::Event,
     prelude::*,
     primitive::{Format, Timing},
+    riff,
 };
 
 /// Represents a Standard Midi File (.mid and .midi files).
-/// Yields `TrackRepr` on a Vec, allowing for customization on what is stored in a track.
-/// References an outside byte array.
+/// This is the main type in the crate.
+///
+/// The `tracks` field is a `Vec` of `T`, where `T` is a type implementing `TrackRepr`.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Smf<'a, T: TrackRepr<'a> = Vec<Event<'a>>> {
     pub header: Header,
@@ -23,16 +27,18 @@ impl Smf<'_> {
     pub fn parse(raw: &[u8]) -> Result<Smf> {
         Smf::read(raw)
     }
-
+}
+impl<'a> Smf<'a, Vec<(&'a [u8], Event<'a>)>> {
     /// Parses tracks into events and additionally provides the *source bytes* for each event.
     /// This can be used to forward the raw event bytes to a MIDI device/synthesizer.
     ///
     /// Same with the `parse` method, this method parses the events immediately into a
     /// `Vec<(&[u8], Event)>`.
-    pub fn parse_with_bytemap(raw: &[u8]) -> Result<Smf<Vec<(&[u8], Event)>>> {
+    pub fn parse_with_bytemap(raw: &'a [u8]) -> Result<Smf<Vec<(&[u8], Event)>>> {
         Smf::read(raw)
     }
-
+}
+impl<'a> Smf<'a, TrackIter<'a>> {
     /// Does *not* parse events, only recognizes the file and splits up the tracks, providing an
     /// iterator that lazily parses events.
     ///
@@ -40,7 +46,7 @@ impl Smf<'_> {
     /// except in very niche cases.
     /// Because the other `parse` methods use multiple threads to parse tracks, the use of this
     /// method is discouraged as it carries a performance penalty unless done correctly.
-    pub fn parse_lazy(raw: &[u8]) -> Result<Smf<TrackIter>> {
+    pub fn parse_lazy(raw: &'a [u8]) -> Result<Smf<TrackIter>> {
         Smf::read(raw)
     }
 }
@@ -58,23 +64,24 @@ impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
     ///
     /// Prefer the `parse` methods instead, which handle generics for you.
     pub fn read(raw: &'a [u8]) -> Result<Smf<'a, T>> {
+        let raw = riff::unwrap(raw).unwrap_or(raw);
         let mut chunks = ChunkIter::read(raw);
         let (header, track_count) = match chunks.next() {
-            Some(maybe_chunk) => match maybe_chunk.context(err_invalid("invalid midi header"))? {
+            Some(maybe_chunk) => match maybe_chunk.context(err_invalid!("invalid midi header"))? {
                 Chunk::Header(header, track_count) => Ok((header, track_count)),
-                Chunk::Track(_) => Err(err_invalid("expected header, found track")),
+                Chunk::Track(_) => Err(err_invalid!("expected header, found track")),
             },
-            None => Err(err_invalid("empty file")),
+            None => Err(err_invalid!("no header chunk")),
         }?;
         let tracks = chunks.parse_as_tracks(track_count)?;
         if cfg!(feature = "strict") {
             ensure!(
                 track_count as usize == tracks.len(),
-                err_malformed("file has a different amount of tracks than declared")
+                err_malformed!("file has a different amount of tracks than declared")
             );
             ensure!(
                 header.format != Format::SingleTrack || track_count == 1,
-                err_malformed("singletrack format file has multiple tracks")
+                err_malformed!("singletrack format file has multiple tracks")
             );
         }
         Ok(Smf::new(header, tracks)?)
@@ -99,11 +106,15 @@ impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
                 use rayon::prelude::*;
                 
                 //Write out the tracks in parallel into several different buffers
-                let track_chunks = self.tracks.par_iter().map(|track| {
-                    let mut track_chunk = Vec::with_capacity(8*1024);
+                let track_chunks = self
+                    .tracks
+                    .par_iter()
+                    .map(|track| {
+                        let mut track_chunk = Vec::with_capacity(8 * 1024);
                     Chunk::write_track(track, &mut track_chunk)?;
                     Ok(track_chunk)
-                }).collect::<IoResult<Vec<_>>>()?;
+                    })
+                    .collect::<IoResult<Vec<_>>>()?;
                 
                 //Write down the tracks sequentially and in order
                 for track_chunk in track_chunks {
@@ -214,13 +225,13 @@ impl<'a> Chunk<'a> {
             }
             let id = raw
                 .split_checked(4)
-                .ok_or(err_invalid("failed to read chunkid"))?;
-            let len = u32::read(raw).context(err_invalid("failed to read chunklen"))?;
+                .ok_or(err_invalid!("failed to read chunkid"))?;
+            let len = u32::read(raw).context(err_invalid!("failed to read chunklen"))?;
             let chunkdata = match raw.split_checked(len as usize) {
                 Some(chunkdata) => chunkdata,
                 None => {
                     if cfg!(feature = "strict") {
-                        bail!(err_malformed("reached eof before chunk ended"));
+                        bail!(err_malformed!("reached eof before chunk ended"));
                     } else {
                         //Just use the remainder of the file
                         mem::replace(raw, &[])
@@ -250,7 +261,7 @@ impl<'a> Chunk<'a> {
             //Read another header (?)
             Ok(Chunk::Header(..)) => {
                 if cfg!(feature = "strict") {
-                    Some(Err(err_malformed("found duplicate header").into()))
+                    Some(Err(err_malformed!("found duplicate header").into()))
                 } else {
                     //Ignore duplicate header
                     None
@@ -261,7 +272,7 @@ impl<'a> Chunk<'a> {
                 if cfg!(feature = "strict") {
                     Some(
                         Err(err)
-                            .context(err_malformed("invalid chunk"))
+                            .context(err_malformed!("invalid chunk"))
                             .map_err(|err| err.into()),
                     )
                 } else {
@@ -389,7 +400,7 @@ impl<'a> Iterator for TrackIter<'a> {
         if self.raw.len() > 0 {
             let read_result = Event::read(&mut self.raw, &mut self.running_status);
             if cfg!(feature = "strict") {
-                Some(read_result.context(err_malformed("malformed event")))
+                Some(read_result.context(err_malformed!("malformed event")))
             } else {
                 match read_result {
                     Ok(ev) => Some(Ok(ev)),
@@ -412,7 +423,7 @@ impl<'a> TrackRepr<'a> for Vec<(&'a [u8], Event<'a>)> {
         let mut track_iter = TrackIter::read(raw)?;
         let mut last_raw = track_iter.unread();
         while let Some(ev) = track_iter.next() {
-            let raw_ev = &last_raw[..last_raw.len()-track_iter.unread().len()];
+            let raw_ev = &last_raw[..last_raw.len() - track_iter.unread().len()];
             last_raw = track_iter.unread();
             events.push((raw_ev, ev?));
         }
