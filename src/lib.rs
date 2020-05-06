@@ -126,6 +126,7 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 
+#[cfg(feature = "alloc")]
 extern crate alloc;
 
 macro_rules! bail {
@@ -145,53 +146,58 @@ macro_rules! ensure {
 #[macro_use]
 mod error {
     use core::fmt;
-    use failure::Fail;
 
-    #[cfg(all(debug_assertions, feature = "std"))]
+    #[cfg(all(debug_assertions, feature = "alloc"))]
     mod error_impl {
         use super::{Error, ErrorExt, ErrorKind};
-        use failure::{Backtrace, Context, Fail};
 
-        pub type ErrorInner = Context<ErrorKind>;
+        pub type ErrorInner = Box<Chained>;
+
+        #[derive(Clone, Debug)]
+        pub struct Chained {
+            this: &'static ErrorKind,
+            src: Option<Error>,
+        }
         impl ErrorExt for Error {
             fn kind(&self) -> ErrorKind {
-                *self.inner.get_context()
+                *self.inner.this
+            }
+            fn source(&self) -> Option<&Error> {
+                self.inner.src.as_ref()
             }
             fn chain_ctx(self, ctx: &'static ErrorKind) -> Error {
                 Error {
-                    inner: Fail::context(self, *ctx),
+                    inner: Box::new(Chained {
+                        this: ctx,
+                        src: Some(self),
+                    }),
                 }
-            }
-        }
-        impl Fail for Error {
-            fn cause(&self) -> Option<&dyn Fail> {
-                self.inner.cause()
-            }
-
-            fn backtrace(&self) -> Option<&Backtrace> {
-                self.inner.backtrace()
             }
         }
         impl From<&'static ErrorKind> for Error {
             fn from(kind: &'static ErrorKind) -> Error {
                 Error {
-                    inner: Context::new(*kind),
+                    inner: Box::new(Chained {
+                        this: kind,
+                        src: None,
+                    }),
                 }
             }
         }
     }
 
-    #[cfg(not(all(debug_assertions, feature = "std")))]
+    #[cfg(not(all(debug_assertions, feature = "alloc")))]
     mod error_impl {
         use super::{Error, ErrorExt, ErrorKind};
-        use failure::Fail;
 
         /// In release mode errors are just a thin pointer.
         pub type ErrorInner = &'static ErrorKind;
-        impl Fail for Error {}
         impl ErrorExt for Error {
             fn kind(&self) -> ErrorKind {
                 *self.inner
+            }
+            fn source(&self) -> Option<&Error> {
+                None
             }
             fn chain_ctx(self, ctx: &'static ErrorKind) -> Error {
                 Error { inner: ctx }
@@ -212,7 +218,7 @@ mod error {
     ///
     /// For more information about the error policy used by `midly`, see
     /// [`ErrorKind`](enum.ErrorKind.html).
-    #[derive(Debug)]
+    #[derive(Clone)]
     pub struct Error {
         inner: self::error_impl::ErrorInner,
     }
@@ -224,15 +230,43 @@ mod error {
         pub fn kind(&self) -> ErrorKind {
             ErrorExt::kind(self)
         }
+
+        /// The underlying cause for this error.
+        ///
+        /// Note that this method will always return `None` in release mode, since error chains
+        /// are not tracked in release.
+        pub fn source(&self) -> Option<&Error> {
+            ErrorExt::source(self)
+        }
     }
     impl fmt::Display for Error {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            fmt::Display::fmt(&self.inner, f)
+            fmt::Display::fmt(&self.kind(), f)
+        }
+    }
+    impl fmt::Debug for Error {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "{}", self.kind())?;
+            let mut maybe_src = self.source();
+            while let Some(src) = maybe_src {
+                writeln!(f)?;
+                write!(f, "  caused by: {}", src.kind())?;
+                maybe_src = src.source();
+            }
+            Ok(())
+        }
+    }
+    #[cfg(feature = "std")]
+    impl std::error::Error for Error {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            self.source()
+                .map(|e| e as &(dyn std::error::Error + 'static))
         }
     }
 
     trait ErrorExt {
         fn kind(&self) -> ErrorKind;
+        fn source(&self) -> Option<&Error>;
         fn chain_ctx(self, ctx: &'static ErrorKind) -> Error;
     }
 
@@ -242,14 +276,13 @@ mod error {
     /// violated are not very useful.
     /// For this reason, errors are broadly categorized into 2 classes, and specific error info is
     /// provided as a non-normative string literal.
-    #[derive(Copy, Clone, Debug, Fail)]
+    #[derive(Copy, Clone, Debug)]
     pub enum ErrorKind {
         /// Fatal errors while reading the file. It is likely that the file is not a MIDI file or
         /// is severely corrupted.
         ///
         /// This error cannot be ignored, as there is not enough data to continue parsing.
         /// No information about the file could be rescued.
-        #[fail(display = "invalid smf file: {}", _0)]
         Invalid(&'static str),
 
         /// Non-fatal error, but the file is clearly corrupted.
@@ -258,7 +291,6 @@ mod error {
         /// enabled.
         ///
         /// Ignoring these errors can cause whole tracks to be skipped.
-        #[fail(display = "malformed smf file: {}", _0)]
         Malformed(&'static str),
     }
     impl ErrorKind {
@@ -267,6 +299,14 @@ mod error {
             match *self {
                 ErrorKind::Invalid(msg) => msg,
                 ErrorKind::Malformed(msg) => msg,
+            }
+        }
+    }
+    impl fmt::Display for ErrorKind {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            match self {
+                ErrorKind::Invalid(msg) => write!(f, "invalid midi: {}", msg),
+                ErrorKind::Malformed(msg) => write!(f, "malformed midi: {}", msg),
             }
         }
     }

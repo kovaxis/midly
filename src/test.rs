@@ -1,5 +1,4 @@
 use crate::{Event, EventIter, Result as MidlyResult, Smf};
-use failure::Fail;
 use std::{fs, time::Instant};
 
 /// Open and read the content of a file.
@@ -11,10 +10,7 @@ macro_rules! open {
         let $name = match $parse::Smf::parse(&$file[..]) {
             Ok(smf) => smf,
             Err(err) => {
-                eprintln!("failed to parse test file:");
-                for cause in (&err as &dyn Fail).iter_chain() {
-                    eprintln!("  {}", cause);
-                }
+                eprintln!("failed to parse test file: {:?}", err);
                 panic!()
             },
         };

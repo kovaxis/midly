@@ -15,18 +15,30 @@ categories = ["multimedia", "multimedia::audio", "multimedia::encoding"]
 license = "Unlicense"
 
 [features]
-default = ["std"]
-
-# Whether to enable use of the standard library and multithreaded midi parsing.
-# Enabled by default.
-std = ["rayon", "failure/std"]
+default = ["std", "parallel"]
 
 # Reject corrupted or uncompliant files, even if they could be read anyway.
 #
-# `ErrorKind::Malformed` errors will be raised if corruption or uncompliance is
-# detected.
+# `ErrorKind::Malformed` errors will only be raised when this feature is enabled.
 strict = []
 
+# Enable the `alloc` dependency.
+#
+# Disabling this feature leaves pretty much only the raw `parse` and `write` functions, but makes
+# the crate fully `no_std`.
+# If this feature is enabled, but the `std` feature is not, the crate becomes `no_std + alloc`.
+alloc = []
+
+# Integrate with the `std` library.
+# Depends on the `alloc` feature.
+std = ["alloc"]
+
+# Enable multithreaded parsing.
+# Depends on the `std` feature.
+#
+# Multithreaded parsing is automatically disabled for tiny MIDI files.
+# Currently multithreading brings in the `rayon` dependency.
+parallel = ["std", "rayon"]
+
 [dependencies]
-failure = { version="0.1", default-features=false, features=["derive"] }
 rayon = { version="1", optional=true }

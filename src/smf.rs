@@ -7,6 +7,11 @@ use crate::{
     riff,
 };
 
+/// How many bytes per event to estimate when allocating space for events.
+const AVG_BYTES_PER_EVENT: f32 = 2.0;
+/// How many bytes must a MIDI body have in order to enable multithreading.
+const PARALLEL_ENABLE_THRESHOLD: usize = 4 * 1024;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Smf<'a> {
     pub header: Header,
@@ -317,56 +322,43 @@ impl<'a> TrackIter<'a> {
     }
 
     pub fn collect_events(self) -> Result<Vec<Vec<Event<'a>>>> {
-        //Attempt to use multiple threads if possible and enabled
-        /*#[cfg(feature = "std")]
-        {
-            if T::USE_MULTITHREADING {
-                use rayon::prelude::*;
-
-                let mut chunk_vec = Vec::with_capacity(self.count_hint as usize);
-                chunk_vec.extend(self);
-                return chunk_vec
-                    .into_par_iter()
-                    .filter_map(Chunk::parse_into_track)
-                    .collect::<Result<Vec<T>>>();
-            }
-        }*/
-        //Fall back to single-threaded
-        let mut tracks = Vec::with_capacity(self.track_count_hint as usize);
-        for chunk_result in self {
-            tracks.push(chunk_result?.collect_events()?);
-        }
-        Ok(tracks)
+        self.generic_collect(EventIter::collect)
     }
 
     pub fn collect_bytemapped(self) -> Result<Vec<Vec<(&'a [u8], Event<'a>)>>> {
-        //Attempt to use multiple threads if possible and enabled
-        /*#[cfg(feature = "std")]
+        self.generic_collect(|events| events.bytemapped().collect())
+    }
+
+    fn generic_collect<T: Send + 'a>(
+        self,
+        collect: impl Fn(EventIter<'a>) -> Result<Vec<T>> + Send + Sync,
+    ) -> Result<Vec<Vec<T>>> {
+        //Attempt to use multiple threads if possible and advantageous
+        #[cfg(feature = "parallel")]
         {
-            if T::USE_MULTITHREADING {
+            if self.unread().len() >= PARALLEL_ENABLE_THRESHOLD {
                 use rayon::prelude::*;
 
-                let mut chunk_vec = Vec::with_capacity(self.count_hint as usize);
-                chunk_vec.extend(self);
+                let chunk_vec = self.collect::<Result<Vec<_>>>()?;
                 return chunk_vec
                     .into_par_iter()
-                    .filter_map(Chunk::parse_into_track)
-                    .collect::<Result<Vec<T>>>();
+                    .map(collect)
+                    .collect::<Result<Vec<Vec<T>>>>();
             }
-        }*/
-        //Fall back to single-threaded
-        let mut tracks = Vec::with_capacity(self.track_count_hint as usize);
-        for chunk_result in self {
-            tracks.push(chunk_result?.collect_bytemapped()?);
         }
-        Ok(tracks)
+        //Fall back to single-threaded
+        self.map(|r| r.and_then(&collect))
+            .collect::<Result<Vec<Vec<T>>>>()
     }
 }
 impl<'a> Iterator for TrackIter<'a> {
     type Item = Result<EventIter<'a>>;
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.track_count_hint as usize, None)
+        (
+            self.track_count_hint as usize,
+            Some(self.track_count_hint as usize),
+        )
     }
 
     fn next(&mut self) -> Option<Result<EventIter<'a>>> {
@@ -436,43 +428,117 @@ impl<'a> EventIter<'a> {
         &mut self.running_status
     }
 
-    pub fn collect_events(self) -> Result<Vec<Event<'a>>> {
-        let mut events = Vec::with_capacity(self.raw.len() / 2);
-        let mut track_iter = EventIter::new(self.raw);
-        while let Some(ev) = track_iter.next() {
-            events.push(ev?);
-        }
-        Ok(events)
+    pub fn bytemapped(self) -> EventBytemapIter<'a> {
+        EventBytemapIter { iter: self }
     }
 
-    pub fn collect_bytemapped(self) -> Result<Vec<(&'a [u8], Event<'a>)>> {
-        let mut events = Vec::with_capacity(self.raw.len() / 2);
-        let mut track_iter = EventIter::new(self.raw);
-        let mut last_raw = track_iter.unread();
-        while let Some(ev) = track_iter.next() {
-            let raw_ev = &last_raw[..last_raw.len() - track_iter.unread().len()];
-            last_raw = track_iter.unread();
-            events.push((raw_ev, ev?));
+    pub fn collect(mut self) -> Result<Vec<Event<'a>>> {
+        let mut events = Vec::with_capacity(self.size_hint().0);
+        while self.raw.len() > 0 {
+            match Event::read(&mut self.raw, &mut self.running_status) {
+                Ok(ev) => events.push(ev),
+                Err(err) => {
+                    if cfg!(feature = "strict") {
+                        Err(err).context(err_malformed!("malformed event"))?;
+                    } else {
+                        //Stop reading track silently on failure
+                        break;
+                    }
+                }
+            }
         }
         Ok(events)
     }
 }
 impl<'a> Iterator for EventIter<'a> {
     type Item = Result<Event<'a>>;
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (
+            (self.raw.len() as f32 * (1.0 / AVG_BYTES_PER_EVENT)) as usize,
+            Some(self.raw.len()),
+        )
+    }
+
     fn next(&mut self) -> Option<Self::Item> {
         if self.raw.len() > 0 {
-            let read_result = Event::read(&mut self.raw, &mut self.running_status);
-            if cfg!(feature = "strict") {
-                Some(read_result.context(err_malformed!("malformed event")))
-            } else {
-                match read_result {
-                    Ok(ev) => Some(Ok(ev)),
-                    //Ignore errors
-                    Err(_err) => None,
+            match Event::read(&mut self.raw, &mut self.running_status) {
+                Ok(ev) => Some(Ok(ev)),
+                Err(err) => {
+                    self.raw = &[];
+                    if cfg!(feature = "strict") {
+                        Some(Err(err).context(err_malformed!("malformed event")))
+                    } else {
+                        None
+                    }
                 }
             }
         } else {
             None
         }
+    }
+}
+
+pub struct EventBytemapIter<'a> {
+    iter: EventIter<'a>,
+}
+impl<'a> EventBytemapIter<'a> {
+    pub fn new(raw: &[u8]) -> EventBytemapIter {
+        EventBytemapIter {
+            iter: EventIter::new(raw),
+        }
+    }
+
+    /// Get the remaining unread bytes.
+    pub fn unread(&self) -> &'a [u8] {
+        self.iter.unread()
+    }
+
+    /// Get the current running status of the track.
+    pub fn running_status(&self) -> Option<u8> {
+        self.iter.running_status()
+    }
+
+    /// Modify the current running status of the track.
+    pub fn running_status_mut(&mut self) -> &mut Option<u8> {
+        self.iter.running_status_mut()
+    }
+
+    pub fn collect(mut self) -> Result<Vec<(&'a [u8], Event<'a>)>> {
+        let mut events = Vec::with_capacity(self.iter.size_hint().0);
+        let mut old_raw = self.iter.raw;
+        while old_raw.len() > 0 {
+            match Event::read(&mut self.iter.raw, &mut self.iter.running_status) {
+                Ok(ev) => {
+                    let ev_len = old_raw.len() - self.iter.raw.len();
+                    events.push((&old_raw[..ev_len], ev))
+                }
+                Err(err) => {
+                    if cfg!(feature = "strict") {
+                        Err(err).context(err_malformed!("malformed event"))?;
+                    } else {
+                        //Stop reading track silently on failure
+                        break;
+                    }
+                }
+            }
+            old_raw = self.iter.raw;
+        }
+        Ok(events)
+    }
+}
+impl<'a> Iterator for EventBytemapIter<'a> {
+    type Item = Result<(&'a [u8], Event<'a>)>;
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+    fn next(&mut self) -> Option<Self::Item> {
+        let old_raw = self.iter.unread();
+        self.iter.next().map(|r| {
+            r.map(|ev| {
+                let ev_len = old_raw.len() - self.iter.unread().len();
+                (&old_raw[..ev_len], ev)
+            })
+        })
     }
 }
