@@ -307,10 +307,14 @@ mod prelude {
         error::{ErrorKind, Result, ResultExt, StdResult},
         primitive::{u14, u24, u28, u4, u7, IntRead, IntReadBottom7, SplitChecked},
     };
-    pub use alloc::vec::Vec;
-    pub use core::{convert::TryFrom, marker::PhantomData, mem, ops};
+    pub(crate) use alloc::vec::Vec;
+    pub(crate) use core::{convert::TryFrom, mem, ops};
     #[cfg(feature = "std")]
-    pub use std::io::{self, Error as IoError, Result as IoResult, Write};
+    pub(crate) use std::{
+        fs::File,
+        io::{self, Error as IoError, Result as IoResult, Write},
+        path::Path,
+    };
 
     pub fn bit_range<T>(val: T, range: ops::Range<u32>) -> T
     where
@@ -331,10 +335,10 @@ mod riff;
 mod smf;
 
 pub use crate::{
-    error::{Error, ErrorKind},
+    error::{Error, ErrorKind, Result},
     event::{Event, EventKind, MetaMessage, MidiMessage},
     primitive::{Format, Fps, SmpteTime, Timing},
-    smf::{Header, Smf, TrackIter, TrackRepr},
+    smf::{parse, write, EventIter, Header, Smf, SmfBytemap, TrackIter},
 };
 
 /// Exotically-sized integers used by the MIDI standard.

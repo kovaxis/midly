@@ -1,4 +1,4 @@
-use crate::Smf;
+use crate::{Event, EventIter, Result as MidlyResult, Smf};
 use failure::Fail;
 use std::{fs, time::Instant};
 
@@ -8,8 +8,7 @@ macro_rules! open {
         let $name = fs::read(concat!("test-asset/", $file)).unwrap();
     };
     {$name:ident : [$parse:ident] $file:expr} => {
-        open!{$name: $file};
-        let $name = match Smf::$parse(&$name) {
+        let $name = match $parse::Smf::parse(&$file[..]) {
             Ok(smf) => smf,
             Err(err) => {
                 eprintln!("failed to parse test file:");
@@ -24,10 +23,11 @@ macro_rules! open {
 
 /// Macro for parsing a MIDI file.
 macro_rules! test {
-    {($name:expr , $file:expr) => {$method_parse:ident,$method_len:ident}} => {{
+    {($name:expr , $file:expr) => $parse_method:ident} => {{
         let counts = time($name, ||->Vec<_> {
-            open!{smf: [$method_parse] $file};
-            smf.tracks.into_iter().map(|track| track.$method_len()).collect()
+            open!{file: $file};
+            open!{smf: [$parse_method] file};
+            smf.tracks.into_iter().map(|track| $parse_method::len(&file[..], track)).collect()
         });
         for (i,count) in counts.iter().enumerate() {
             println!("track {} has {} events", i, count);
@@ -38,7 +38,8 @@ macro_rules! test {
 macro_rules! test_rewrite {
     ($name:expr, $file:expr) => {{
         println!("parsing...");
-        open! {smf: [parse] $file};
+        open! {smf: $file};
+        open! {smf: [parse_collect] smf};
         println!("rewriting...");
         let mut file = Vec::with_capacity(16 * 1024);
         time(concat!($name, "[rewrite]"), || {
@@ -55,6 +56,53 @@ macro_rules! test_rewrite {
     }};
 }
 
+mod parse_collect {
+    use super::*;
+    pub use crate::Smf;
+    pub fn len(_raw: &[u8], track: Vec<Event>) -> usize {
+        track.len()
+    }
+}
+mod parse_bytemap {
+    use super::*;
+    pub use crate::SmfBytemap as Smf;
+    pub fn len(mut raw: &[u8], track: Vec<(&[u8], Event)>) -> usize {
+        //Make sure the bytes of each event are actually present in the source
+        for (bytes, _ev) in track.iter() {
+            while !raw.starts_with(*bytes) {
+                match raw.get(1..) {
+                    Some(new_raw) => raw = new_raw,
+                    None => panic!("event bytes are not present in the raw bytes"),
+                }
+            }
+            raw = &raw[bytes.len()..];
+        }
+        track.len()
+    }
+}
+mod parse_lazy {
+    use super::*;
+    pub struct Smf<'a> {
+        pub header: crate::Header,
+        pub tracks: crate::TrackIter<'a>,
+    }
+    impl Smf<'_> {
+        pub fn parse(raw: &[u8]) -> MidlyResult<Smf> {
+            let (header, tracks) = crate::parse(raw)?;
+            Ok(Smf { header, tracks })
+        }
+    }
+    pub fn len(_raw: &[u8], track: MidlyResult<EventIter>) -> usize {
+        match track {
+            Ok(track) => track.count(),
+            Err(err) => {
+                println!("failed to parse track: {}", err);
+                0
+            }
+        }
+    }
+}
+
 /// Take note of how long it takes to parse.
 fn time<F: FnOnce() -> R, R>(activity: &str, op: F) -> R {
     let start = Instant::now();
@@ -69,50 +117,39 @@ mod parse {
     use super::*;
 
     #[test]
-    fn clementi_defer() {
-        test!(("parse_clementi_iter","Clementi.mid") => {parse_lazy,count});
-    }
-    #[test]
-    fn clementi_collect() {
-        test!(("parse_clementi_vec","Clementi.mid") => {parse,len});
+    fn clementi_lazy() {
+        test!(("parse_clementi_lazy","Clementi.mid") => parse_lazy);
     }
 
     #[test]
-    fn sandstorm_defer() {
-        test!(("parse_sandstorm_iter","Sandstorm.mid") => {parse_lazy,count});
+    fn clementi_bytemap() {
+        test!(("parse_clementi_bytemap", "Clementi.mid") => parse_bytemap);
     }
+
     #[test]
-    fn sandstorm_collect() {
-        test!(("parse_sandstorm_vec","Sandstorm.mid") => {parse,len});
+    fn clementi() {
+        test!(("parse_clementi_vec","Clementi.mid") => parse_collect);
+    }
+
+    #[test]
+    fn sandstorm() {
+        test!(("parse_sandstorm_vec","Sandstorm.mid") => parse_collect);
     }
 
     #[test]
     #[cfg_attr(feature = "strict", should_panic)]
-    fn pidamaged_defer() {
-        test!(("parse_pidamaged_iter","PiDamaged.mid") => {parse_lazy,count});
-    }
-    #[test]
-    #[cfg_attr(feature = "strict", should_panic)]
-    fn pidamaged_collect() {
-        test!(("parse_pidamaged_vec","PiDamaged.mid") => {parse,len});
+    fn pidamaged() {
+        test!(("parse_pidamaged_vec","PiDamaged.mid") => parse_collect);
     }
 
     #[test]
-    fn levels_defer() {
-        test!(("parse_levels_iter","Levels.mid") => {parse_lazy,count});
-    }
-    #[test]
-    fn levels_collect() {
-        test!(("parse_levels_vec","Levels.mid") => {parse,len});
+    fn levels() {
+        test!(("parse_levels_vec","Levels.mid") => parse_collect);
     }
 
     #[test]
-    fn beethoven_defer() {
-        test!(("parse_beethoven_iter","Beethoven.rmi") => {parse_lazy,count});
-    }
-    #[test]
-    fn beethoven_collect() {
-        test!(("parse_beethoven_vec","Beethoven.rmi") => {parse,len});
+    fn beethoven() {
+        test!(("parse_beethoven_vec","Beethoven.rmi") => parse_collect);
     }
 }
 
