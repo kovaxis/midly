@@ -1,0 +1,46 @@
+
+This plaintext file serves as an example for an invalid MIDI file.1. Red
+
+2. Sky Red
+3. Medium Red
+4. Maroon
+5. Flame
+6. Lively Flame
+7. Dying Flame
+8. Dull Red
+9. Green
+10. Sky Green
+11. Medium Green
+12. Dark Green
+13. Dull Green
+14. Blue
+15. Sky Blue
+16. Medium Blue
+17. Navy Blue
+18. Teal
+19. Purple
+20. Pansy Purple
+21. Heavy Purple
+22. Pink
+23. Light Pink
+24. Dark Pink
+25. Orange
+26. Sky Orange
+27. Light Brown
+28. Dark Brown
+29. Heavy Brown
+30. Red Black
+31. Grey
+32. Light Grey
+33. Lighter Grey
+34. Green Black
+35. Blue Black
+36. Grey Black
+37. Black
+38. White
+39. Grey White
+40. Dark Grey White
+41. Yellow
+42. Sunset Yellow
+43. Gold
+44. Silver

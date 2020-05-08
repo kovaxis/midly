@@ -129,13 +129,6 @@
 //! [`EventKind::parse`](enum.EventKind.html#method.parse) method, however most System Common
 //! and System Realtime messages are unsupported.
 
-//! # TODO:
-//! - Handle parse errors consistently throughout.
-//! - Expose a raw MIDI event parsing API.
-//! - Check which parts of the API are exposed.
-//! - Write docs.
-//! - Expose a `std::io::Write`-based write API.
-
 #![forbid(unsafe_code)]
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 

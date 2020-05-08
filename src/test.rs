@@ -223,6 +223,21 @@ mod parse {
     fn beethoven() {
         test!(("parse_beethoven","Beethoven.rmi") => parse_collect);
     }
+
+    #[test]
+    fn not_midi() {
+        open! {file: "colorlist.txt"};
+        let result = parse_collect::Smf::parse(&file);
+        match result {
+            Ok(_) => panic!("parsed an invalid midi file"),
+            Err(err) => match err.kind() {
+                crate::ErrorKind::Invalid(_) => {}
+                crate::ErrorKind::Malformed(_) => {
+                    panic!("invalid midi file produced a malformed (not invalid) errorkind")
+                }
+            },
+        }
+    }
 }
 
 /// Test the MIDI writer and parser.
