@@ -27,11 +27,22 @@ impl<'a> Event<'a> {
     /// The second argument is a mutable reference to the current "running status".
     /// Running status allows consecutive events to share their status if there is no status change,
     /// so running status should be shared across calls to `Event::read`.
-    pub fn read(raw: &mut &'a [u8], running_status: &mut Option<u8>) -> Result<Event<'a>> {
+    pub(crate) fn read(raw: &mut &'a [u8], running_status: &mut Option<u8>) -> Result<Event<'a>> {
         let delta = u28::read_u7(raw).context(err_invalid!("failed to read event deltatime"))?;
         let kind =
             EventKind::read(raw, running_status).context(err_invalid!("failed to parse event"))?;
         Ok(Event { delta, kind })
+    }
+
+    pub(crate) fn read_bytemap(
+        raw: &mut &'a [u8],
+        running_status: &mut Option<u8>,
+    ) -> Result<(&'a [u8], Event<'a>)> {
+        let delta = u28::read_u7(raw).context(err_invalid!("failed to read event deltatime"))?;
+        let old_raw = *raw;
+        let kind =
+            EventKind::read(raw, running_status).context(err_invalid!("failed to parse event"))?;
+        Ok((&old_raw[..old_raw.len() - raw.len()], Event { delta, kind }))
     }
 
     pub(crate) fn write<W: Write>(

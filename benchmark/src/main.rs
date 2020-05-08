@@ -6,6 +6,8 @@ use std::{
 
 const MIDI_DIR: &str = "../test-asset";
 
+const MIDI_EXT: &[&str] = &["mid", "midi", "rmi"];
+
 const PARSERS: &[(&str, fn(&Path) -> Result<usize, String>)] = &[
     (&"midly", parse_midly),
     (&"nom-midi", parse_nom),
@@ -35,7 +37,10 @@ fn list_midis(dir: &Path) -> Vec<PathBuf> {
     let mut midis = Vec::new();
     for entry in fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
-        if path.extension() == Some("mid".as_ref()) || path.extension() == Some("midi".as_ref()) {
+        if MIDI_EXT
+            .iter()
+            .any(|ext| path.extension() == Some(ext.as_ref()))
+        {
             midis.push(path);
         }
     }

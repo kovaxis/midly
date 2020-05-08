@@ -7,10 +7,34 @@ use crate::{
     riff,
 };
 
-/// How many bytes per event to estimate when allocating space for events.
-const AVG_BYTES_PER_EVENT: f32 = 2.0;
+/// How many bytes per event to estimate when allocating memory for events.
+///
+/// A value that is too large (ie. too few bytes/event), will underallocate, while a value that is
+/// too small (ie. too many bytes/event) will overallocate.
+///
+/// Usually, since memory is cheap it's better to overallocate, since reallocating the buffer may
+/// result in costly memory moves.
+///
+/// Real-world tests show that without running status, the average is a little above 4 bytes/event,
+/// and with running status enabled it's a little above 3 bytes/event.
+/// This makes sense, since it's DeltaTime [+ Status] + Key + Velocity for NoteOn and NoteOff
+/// events, which should make up the bulk of most MIDI files.
+const EVENTS_PER_BYTE: f32 = 1.0 / 3.0;
+/// How many events per byte to estimate when allocating memory for event data.
+///
+/// A value that is too large will overallocate space for bytes, while a value that's too small
+/// will underallocate bytes.
+///
+/// Since the writer uses running status by default, a value a bit over `3` will allocate enough for
+/// almost all cases (Except for eg. info tracks, which usually have a high byte/event count
+/// because they contain text. However these tracks are small enough that reallocating doesn't
+/// matter too much).
+const BYTES_PER_EVENT: f32 = 3.4;
+
 /// How many bytes must a MIDI body have in order to enable multithreading.
-const PARALLEL_ENABLE_THRESHOLD: usize = 4 * 1024;
+///
+/// When writing, the MIDI body size is estimated from the event count using `BYTES_PER_EVENT`.
+const PARALLEL_ENABLE_THRESHOLD: usize = 3 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Smf<'a> {
@@ -135,7 +159,7 @@ where
         let event_count = (0..tracks)
             .map(|idx| get_track(idx).size_hint().0)
             .sum::<usize>();
-        if (event_count as f32 * AVG_BYTES_PER_EVENT) > PARALLEL_ENABLE_THRESHOLD as f32 {
+        if (event_count as f32 * BYTES_PER_EVENT) > PARALLEL_ENABLE_THRESHOLD as f32 {
             use rayon::prelude::*;
 
             //Write out the tracks in parallel into several different buffers
@@ -324,9 +348,9 @@ impl<'a> Chunk<'a> {
         track: impl Iterator<Item = &'a Event<'a>>,
         out: &mut Vec<u8>,
     ) -> IoResult<Vec<u8>> {
-        let cap = (track.size_hint().0 as f32 * AVG_BYTES_PER_EVENT) as usize;
+        let cap = (track.size_hint().0 as f32 * BYTES_PER_EVENT) as usize;
         out.clear();
-        out.reserve(cap);
+        out.reserve(8 + cap);
         out.extend_from_slice(b"MTrk\0\0\0\0");
         Self::write_raw(track, out)?;
         let len = Self::check_len::<Vec<u8>, _>(out.len() - 8)?;
@@ -502,7 +526,10 @@ impl<'a> EventIter<'a> {
     }
 
     pub fn bytemapped(self) -> EventBytemapIter<'a> {
-        EventBytemapIter { iter: self }
+        EventBytemapIter {
+            raw: self.raw,
+            running_status: self.running_status,
+        }
     }
 
     pub fn collect(mut self) -> Result<Vec<Event<'a>>> {
@@ -511,6 +538,7 @@ impl<'a> EventIter<'a> {
             match Event::read(&mut self.raw, &mut self.running_status) {
                 Ok(ev) => events.push(ev),
                 Err(err) => {
+                    self.raw = &[];
                     if cfg!(feature = "strict") {
                         Err(err).context(err_malformed!("malformed event"))?;
                     } else {
@@ -528,7 +556,7 @@ impl<'a> Iterator for EventIter<'a> {
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         (
-            (self.raw.len() as f32 * (1.0 / AVG_BYTES_PER_EVENT)) as usize,
+            (self.raw.len() as f32 * EVENTS_PER_BYTE) as usize,
             Some(self.raw.len()),
         )
     }
@@ -553,40 +581,39 @@ impl<'a> Iterator for EventIter<'a> {
 }
 
 pub struct EventBytemapIter<'a> {
-    iter: EventIter<'a>,
+    raw: &'a [u8],
+    running_status: Option<u8>,
 }
 impl<'a> EventBytemapIter<'a> {
     pub fn new(raw: &[u8]) -> EventBytemapIter {
         EventBytemapIter {
-            iter: EventIter::new(raw),
+            raw,
+            running_status: None,
         }
     }
 
     /// Get the remaining unread bytes.
     pub fn unread(&self) -> &'a [u8] {
-        self.iter.unread()
+        self.raw
     }
 
     /// Get the current running status of the track.
     pub fn running_status(&self) -> Option<u8> {
-        self.iter.running_status()
+        self.running_status
     }
 
     /// Modify the current running status of the track.
     pub fn running_status_mut(&mut self) -> &mut Option<u8> {
-        self.iter.running_status_mut()
+        &mut self.running_status
     }
 
     pub fn collect(mut self) -> Result<Vec<(&'a [u8], Event<'a>)>> {
-        let mut events = Vec::with_capacity(self.iter.size_hint().0);
-        let mut old_raw = self.iter.raw;
-        while old_raw.len() > 0 {
-            match Event::read(&mut self.iter.raw, &mut self.iter.running_status) {
-                Ok(ev) => {
-                    let ev_len = old_raw.len() - self.iter.raw.len();
-                    events.push((&old_raw[..ev_len], ev))
-                }
+        let mut events = Vec::with_capacity(self.size_hint().0);
+        while self.raw.len() > 0 {
+            match Event::read_bytemap(&mut self.raw, &mut self.running_status) {
+                Ok(ev) => events.push(ev),
                 Err(err) => {
+                    self.raw = &[];
                     if cfg!(feature = "strict") {
                         Err(err).context(err_malformed!("malformed event"))?;
                     } else {
@@ -595,7 +622,6 @@ impl<'a> EventBytemapIter<'a> {
                     }
                 }
             }
-            old_raw = self.iter.raw;
         }
         Ok(events)
     }
@@ -603,15 +629,26 @@ impl<'a> EventBytemapIter<'a> {
 impl<'a> Iterator for EventBytemapIter<'a> {
     type Item = Result<(&'a [u8], Event<'a>)>;
     fn size_hint(&self) -> (usize, Option<usize>) {
-        self.iter.size_hint()
+        (
+            (self.raw.len() as f32 * EVENTS_PER_BYTE) as usize,
+            Some(self.raw.len()),
+        )
     }
     fn next(&mut self) -> Option<Self::Item> {
-        let old_raw = self.iter.unread();
-        self.iter.next().map(|r| {
-            r.map(|ev| {
-                let ev_len = old_raw.len() - self.iter.unread().len();
-                (&old_raw[..ev_len], ev)
-            })
-        })
+        if self.raw.len() > 0 {
+            match Event::read_bytemap(&mut self.raw, &mut self.running_status) {
+                Ok(ev) => Some(Ok(ev)),
+                Err(err) => {
+                    self.raw = &[];
+                    if cfg!(feature = "strict") {
+                        Some(Err(err).context(err_malformed!("malformed event")))
+                    } else {
+                        None
+                    }
+                }
+            }
+        } else {
+            None
+        }
     }
 }

@@ -63,14 +63,18 @@ mod parse_bytemap {
     use super::*;
     pub use crate::SmfBytemap as Smf;
     pub fn len(mut raw: &[u8], track: Vec<(&[u8], Event)>) -> usize {
-        //Make sure the bytes of each event are actually present in the source
+        //Quick and dirty test to make sure events bytes are present in the source in order, and
+        //NOT consecutive (because delta times must interrupt every single event)
         for (bytes, _ev) in track.iter() {
+            let mut advanced = false;
             while !raw.starts_with(*bytes) {
+                advanced = true;
                 match raw.get(1..) {
                     Some(new_raw) => raw = new_raw,
                     None => panic!("event bytes are not present in the raw bytes"),
                 }
             }
+            assert!(advanced, "event bytes cannot be consecutive");
             raw = &raw[bytes.len()..];
         }
         track.len()
@@ -124,28 +128,39 @@ mod parse {
 
     #[test]
     fn clementi() {
-        test!(("parse_clementi_vec","Clementi.mid") => parse_collect);
+        test!(("parse_clementi","Clementi.mid") => parse_collect);
     }
 
     #[test]
     fn sandstorm() {
-        test!(("parse_sandstorm_vec","Sandstorm.mid") => parse_collect);
+        test!(("parse_sandstorm","Sandstorm.mid") => parse_collect);
+    }
+
+    #[test]
+    fn sandstorm_bytemap() {
+        test!(("parse_sandstorm_bytemap", "Sandstorm.mid") => parse_bytemap);
     }
 
     #[test]
     #[cfg_attr(feature = "strict", should_panic)]
     fn pidamaged() {
-        test!(("parse_pidamaged_vec","PiDamaged.mid") => parse_collect);
+        test!(("parse_pidamaged","PiDamaged.mid") => parse_collect);
+    }
+
+    #[test]
+    #[cfg_attr(feature = "strict", should_panic)]
+    fn pidamaged_bytemap() {
+        test!(("parse_pidamaged_bytemap", "PiDamaged.mid") => parse_bytemap);
     }
 
     #[test]
     fn levels() {
-        test!(("parse_levels_vec","Levels.mid") => parse_collect);
+        test!(("parse_levels","Levels.mid") => parse_collect);
     }
 
     #[test]
     fn beethoven() {
-        test!(("parse_beethoven_vec","Beethoven.rmi") => parse_collect);
+        test!(("parse_beethoven","Beethoven.rmi") => parse_collect);
     }
 }
 
@@ -158,22 +173,22 @@ mod write {
 
     #[test]
     fn clementi_rewrite() {
-        test_rewrite!("rewrite_clementi", "Clementi.mid");
+        test_rewrite!("clementi_rewrite", "Clementi.mid");
     }
 
     #[test]
     fn sandstorm_rewrite() {
-        test_rewrite!("rewrite_sandstorm", "Sandstorm.mid");
+        test_rewrite!("sandstorm_rewrite", "Sandstorm.mid");
     }
 
     #[test]
     #[cfg_attr(feature = "strict", should_panic)]
     fn pidamaged_rewrite() {
-        test_rewrite!("rewrite_pidamaged", "PiDamaged.mid");
+        test_rewrite!("pidamaged_rewrite", "PiDamaged.mid");
     }
 
     #[test]
     fn levels_rewrite() {
-        test_rewrite!("rewrite_levels", "Levels.mid");
+        test_rewrite!("levels_rewrite", "Levels.mid");
     }
 }
