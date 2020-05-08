@@ -174,7 +174,6 @@ impl IntReadBottom7 for u28 {
     }
 }
 
-#[cfg(feature = "std")]
 impl u28 {
     pub(crate) fn write_varlen<W: Write>(&self, out: &mut W) -> IoResult<W> {
         let int = self.as_int();
@@ -217,7 +216,6 @@ pub(crate) fn read_varlen_slice<'a>(raw: &mut &'a [u8]) -> Result<&'a [u8]> {
     })
 }
 
-#[cfg(feature = "std")]
 /// Write a slice represented as a varlen `u28` as its length and then the raw bytes.
 pub(crate) fn write_varlen_slice<W: Write>(slice: &[u8], out: &mut W) -> IoResult<W> {
     let len = u32::try_from(slice.len())
@@ -248,7 +246,7 @@ pub enum Format {
     Sequential,
 }
 impl Format {
-    pub fn read(raw: &mut &[u8]) -> Result<Format> {
+    pub(crate) fn read(raw: &mut &[u8]) -> Result<Format> {
         let format = u16::read(raw)?;
         Ok(match format {
             0 => Format::SingleTrack,
@@ -257,8 +255,7 @@ impl Format {
             _ => bail!(err_invalid!("invalid smf format")),
         })
     }
-    #[cfg(feature = "std")]
-    pub fn encode(&self) -> [u8; 2] {
+    pub(crate) fn encode(&self) -> [u8; 2] {
         let code: u16 = match self {
             Format::SingleTrack => 0,
             Format::Parallel => 1,
@@ -282,7 +279,7 @@ pub enum Timing {
     Timecode(Fps, u8),
 }
 impl Timing {
-    pub fn read(raw: &mut &[u8]) -> Result<Timing> {
+    pub(crate) fn read(raw: &mut &[u8]) -> Result<Timing> {
         let raw =
             u16::read(raw).context(err_invalid!("unexpected eof when reading midi timing"))?;
         if bit_range(raw, 15..16) != 0 {
@@ -298,8 +295,7 @@ impl Timing {
             Ok(Timing::Metrical(u15::from(raw)))
         }
     }
-    #[cfg(feature = "std")]
-    pub fn encode(&self) -> [u8; 2] {
+    pub(crate) fn encode(&self) -> [u8; 2] {
         match self {
             Timing::Metrical(ticksperbeat) => ticksperbeat.as_int().to_be_bytes(),
             Timing::Timecode(framespersec, ticksperframe) => {
@@ -379,7 +375,8 @@ impl SmpteTime {
         self.second as f32
             + ((self.frame as f32 + self.subframe as f32 / 100.0) / self.fps.as_f32())
     }
-    pub fn read(raw: &mut &[u8]) -> Result<SmpteTime> {
+
+    pub(crate) fn read(raw: &mut &[u8]) -> Result<SmpteTime> {
         let data = raw
             .split_checked(5)
             .ok_or(err_invalid!("failed to read smpte time data"))?;
@@ -393,8 +390,7 @@ impl SmpteTime {
         Ok(SmpteTime::new(hour, minute, second, frame, subframe, fps)
             .ok_or(err_invalid!("invalid smpte time"))?)
     }
-    #[cfg(feature = "std")]
-    pub fn encode(&self) -> [u8; 5] {
+    pub(crate) fn encode(&self) -> [u8; 5] {
         let hour_fps = self.hour() | self.fps().as_code().as_int() << 5;
         [
             hour_fps,
@@ -422,7 +418,7 @@ pub enum Fps {
 }
 impl Fps {
     /// Does the conversion from a 2-bit fps code to an `Fps` value.
-    pub fn from_code(code: u2) -> Fps {
+    pub(crate) fn from_code(code: u2) -> Fps {
         match code.as_int() {
             0 => Fps::Fps24,
             1 => Fps::Fps25,
@@ -432,7 +428,7 @@ impl Fps {
         }
     }
     /// Does the conversion to a 2-bit fps code.
-    pub fn as_code(self) -> u2 {
+    pub(crate) fn as_code(self) -> u2 {
         u2::from(match self {
             Fps::Fps24 => 0,
             Fps::Fps25 => 1,

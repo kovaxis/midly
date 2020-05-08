@@ -20,6 +20,7 @@ use crate::{
 /// This makes sense, since it's DeltaTime [+ Status] + Key + Velocity for NoteOn and NoteOff
 /// events, which should make up the bulk of most MIDI files.
 const EVENTS_PER_BYTE: f32 = 1.0 / 3.0;
+
 /// How many events per byte to estimate when allocating memory for event data.
 ///
 /// A value that is too large will overallocate space for bytes, while a value that's too small
@@ -29,18 +30,22 @@ const EVENTS_PER_BYTE: f32 = 1.0 / 3.0;
 /// almost all cases (Except for eg. info tracks, which usually have a high byte/event count
 /// because they contain text. However these tracks are small enough that reallocating doesn't
 /// matter too much).
+#[cfg(feature = "alloc")]
 const BYTES_PER_EVENT: f32 = 3.4;
 
 /// How many bytes must a MIDI body have in order to enable multithreading.
 ///
 /// When writing, the MIDI body size is estimated from the event count using `BYTES_PER_EVENT`.
+#[cfg(feature = "parallel")]
 const PARALLEL_ENABLE_THRESHOLD: usize = 3 * 1024;
 
+#[cfg(feature = "alloc")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Smf<'a> {
     pub header: Header,
     pub tracks: Vec<Vec<Event<'a>>>,
 }
+#[cfg(feature = "alloc")]
 impl Smf<'_> {
     pub fn new(header: Header, tracks: Vec<Vec<Event>>) -> Smf {
         Smf { header, tracks }
@@ -66,17 +71,19 @@ impl Smf<'_> {
     #[cfg(feature = "std")]
     pub fn save<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
         fn save_impl(smf: &Smf, path: &Path) -> io::Result<()> {
-            smf.write(&mut SeekWrap(File::create(path)?))
+            smf.write(&mut crate::io::SeekWrap(File::create(path)?))
         }
         save_impl(self, path.as_ref())
     }
 }
 
+#[cfg(feature = "alloc")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SmfBytemap<'a> {
     pub header: Header,
     pub tracks: Vec<Vec<(&'a [u8], Event<'a>)>>,
 }
+#[cfg(feature = "alloc")]
 impl<'a> SmfBytemap<'a> {
     pub fn new(header: Header, tracks: Vec<Vec<(&'a [u8], Event<'a>)>>) -> SmfBytemap<'a> {
         SmfBytemap { header, tracks }
@@ -102,12 +109,13 @@ impl<'a> SmfBytemap<'a> {
     #[cfg(feature = "std")]
     pub fn save<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
         fn save_impl(smf: &SmfBytemap, path: &Path) -> io::Result<()> {
-            smf.write(&mut SeekWrap(File::create(path)?))
+            smf.write(&mut crate::io::SeekWrap(File::create(path)?))
         }
         save_impl(self, path.as_ref())
     }
 }
 
+#[cfg(feature = "alloc")]
 fn validate_smf(header: &Header, track_count_hint: u16, track_count: usize) -> Result<()> {
     if cfg!(feature = "strict") {
         ensure!(
@@ -398,7 +406,6 @@ impl Header {
         let timing = Timing::read(&mut raw)?;
         Ok((Header::new(format, timing), track_count))
     }
-    #[cfg(feature = "std")]
     fn encode(&self, track_count: u16) -> [u8; 6] {
         let mut bytes = [0; 6];
         bytes[0..2].copy_from_slice(&self.format.encode()[..]);
@@ -418,14 +425,17 @@ impl<'a> TrackIter<'a> {
         self.chunks.raw
     }
 
+    #[cfg(feature = "alloc")]
     pub fn collect_events(self) -> Result<Vec<Vec<Event<'a>>>> {
         self.generic_collect(EventIter::collect)
     }
 
+    #[cfg(feature = "alloc")]
     pub fn collect_bytemapped(self) -> Result<Vec<Vec<(&'a [u8], Event<'a>)>>> {
         self.generic_collect(|events| events.bytemapped().collect())
     }
 
+    #[cfg(feature = "alloc")]
     fn generic_collect<T: Send + 'a>(
         self,
         collect: impl Fn(EventIter<'a>) -> Result<Vec<T>> + Send + Sync,
@@ -532,6 +542,7 @@ impl<'a> EventIter<'a> {
         }
     }
 
+    #[cfg(feature = "alloc")]
     pub fn collect(mut self) -> Result<Vec<Event<'a>>> {
         let mut events = Vec::with_capacity(self.size_hint().0);
         while self.raw.len() > 0 {
@@ -607,6 +618,7 @@ impl<'a> EventBytemapIter<'a> {
         &mut self.running_status
     }
 
+    #[cfg(feature = "alloc")]
     pub fn collect(mut self) -> Result<Vec<(&'a [u8], Event<'a>)>> {
         let mut events = Vec::with_capacity(self.size_hint().0);
         while self.raw.len() > 0 {

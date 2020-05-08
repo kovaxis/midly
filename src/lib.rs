@@ -6,6 +6,7 @@
 //! Usage is as simple as:
 //!
 //! ```rust
+//! # #[cfg(feature = "alloc")] {
 //! use midly::Smf;
 //!
 //! let smf = Smf::parse(include_bytes!("../test-asset/Clementi.mid")).unwrap();
@@ -13,6 +14,7 @@
 //! for (i, track) in smf.tracks.iter().enumerate() {
 //!     println!("track {} has {} events", i, track.len());
 //! }
+//! # }
 //! ```
 //!
 //! The [`Smf`](struct.Smf.html) struct is the main type in the crate.
@@ -26,6 +28,7 @@
 //! For this reason, the byte buffer must be created separately from the `Smf` structure:
 //!
 //! ```rust
+//! # #[cfg(feature = "alloc")] {
 //! use midly::Smf;
 //!
 //! // Load bytes into a buffer
@@ -33,11 +36,13 @@
 //!
 //! // Parse file in a separate step
 //! let smf = Smf::parse(bytes).unwrap();
+//! # }
 //! ```
 //!
 //! When loading a file something similar has to be done:
 //!
 //! ```rust
+//! # #[cfg(feature = "alloc")] {
 //! use std::fs;
 //! use midly::Smf;
 //!
@@ -46,6 +51,7 @@
 //!
 //! // Parse bytes in a separate step
 //! let smf = Smf::parse(&bytes).unwrap();
+//! # }
 //! ```
 //!
 //! # Writing Standard Midi Files
@@ -156,7 +162,7 @@ mod error;
 mod prelude {
     pub(crate) use crate::{
         error::{ErrorKind, Result, ResultExt, StdResult},
-        io::{IoResult, Seek, SeekWrap, Write, WriteCounter},
+        io::{IoResult, Seek, Write, WriteCounter},
         primitive::{u14, u24, u28, u4, u7, IntRead, IntReadBottom7, SplitChecked},
     };
     #[cfg(feature = "alloc")]
@@ -184,11 +190,13 @@ mod primitive;
 mod riff;
 mod smf;
 
+#[cfg(feature = "alloc")]
+pub use crate::smf::{Smf, SmfBytemap};
 pub use crate::{
     error::{Error, ErrorKind, Result},
     event::{Event, EventKind, MetaMessage, MidiMessage},
     primitive::{Format, Fps, SmpteTime, Timing},
-    smf::{parse, write, EventIter, Header, Smf, SmfBytemap, TrackIter},
+    smf::{parse, write, EventIter, Header, TrackIter},
 };
 
 /// Exotically-sized integers used by the MIDI standard.

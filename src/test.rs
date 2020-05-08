@@ -1,4 +1,4 @@
-use crate::{Event, EventIter, Result as MidlyResult, Smf};
+use crate::{Event, EventIter, Result as MidlyResult};
 use std::{fs, time::Instant};
 
 /// Open and read the content of a file.
@@ -31,6 +31,19 @@ macro_rules! test {
     }};
 }
 
+#[cfg(not(feature = "alloc"))]
+impl crate::io::Write for Vec<u8> {
+    type Error = &'static str;
+    type Seekable = crate::io::NotSeekable<Self>;
+    fn write_all(&mut self, buf: &[u8]) -> Result<(), &'static str> {
+        self.extend_from_slice(buf);
+        Ok(())
+    }
+    fn invalid_input(msg: &'static str) -> &'static str {
+        msg
+    }
+}
+
 macro_rules! test_rewrite {
     ($name:expr, $file:expr) => {{
         println!("parsing...");
@@ -43,7 +56,7 @@ macro_rules! test_rewrite {
         });
         println!("reparsing...");
         let clone_smf = time(concat!($name, "[reparse]"), || {
-            Smf::parse(&file).expect("failed to reparse midi file")
+            parse_collect::Smf::parse(&file).expect("failed to reparse midi file")
         });
         assert_eq!(
             smf, clone_smf,
@@ -54,14 +67,62 @@ macro_rules! test_rewrite {
 
 mod parse_collect {
     use super::*;
+    #[cfg(feature = "alloc")]
     pub use crate::Smf;
+    #[cfg(not(feature = "alloc"))]
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct Smf<'a> {
+        pub header: crate::Header,
+        pub tracks: Vec<Vec<Event<'a>>>,
+    }
+    #[cfg(not(feature = "alloc"))]
+    impl<'a> Smf<'a> {
+        pub fn parse(raw: &[u8]) -> MidlyResult<Smf> {
+            let (header, tracks) = crate::parse(raw)?;
+            Ok(Smf {
+                header,
+                tracks: tracks
+                    .map(|events| events.and_then(|evs| evs.collect::<MidlyResult<Vec<_>>>()))
+                    .collect::<MidlyResult<Vec<_>>>()?,
+            })
+        }
+        pub fn write<W: crate::io::Write>(&self, out: &mut W) -> Result<(), W::Error> {
+            crate::write(
+                &self.header,
+                self.tracks.len(),
+                |idx| self.tracks[idx].iter(),
+                out,
+            )
+        }
+    }
     pub fn len(_raw: &[u8], track: Vec<Event>) -> usize {
         track.len()
     }
 }
 mod parse_bytemap {
     use super::*;
+    #[cfg(feature = "alloc")]
     pub use crate::SmfBytemap as Smf;
+    #[cfg(not(feature = "alloc"))]
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct Smf<'a> {
+        pub header: crate::Header,
+        pub tracks: Vec<Vec<(&'a [u8], Event<'a>)>>,
+    }
+    #[cfg(not(feature = "alloc"))]
+    impl<'a> Smf<'a> {
+        pub fn parse(raw: &[u8]) -> MidlyResult<Smf> {
+            let (header, tracks) = crate::parse(raw)?;
+            Ok(Smf {
+                header,
+                tracks: tracks
+                    .map(|events| {
+                        events.and_then(|evs| evs.bytemapped().collect::<MidlyResult<Vec<_>>>())
+                    })
+                    .collect::<MidlyResult<Vec<_>>>()?,
+            })
+        }
+    }
     pub fn len(mut raw: &[u8], track: Vec<(&[u8], Event)>) -> usize {
         //Quick and dirty test to make sure events bytes are present in the source in order, and
         //NOT consecutive (because delta times must interrupt every single event)
@@ -165,9 +226,6 @@ mod parse {
 }
 
 /// Test the MIDI writer and parser.
-///
-/// Writing is only enabled with the `std` feature.
-#[cfg(feature = "std")]
 mod write {
     use super::*;
 

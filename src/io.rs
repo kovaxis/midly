@@ -57,6 +57,7 @@ impl<W: Write> Seek for NotSeekable<W> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl Write for Vec<u8> {
     type Error = &'static str;
     type Seekable = Self;
@@ -71,6 +72,7 @@ impl Write for Vec<u8> {
         Some(self)
     }
 }
+#[cfg(feature = "alloc")]
 impl Seek for Vec<u8> {
     fn tell(&mut self) -> StdResult<u64, Self::Error> {
         Ok(self.len() as u64)

@@ -1,10 +1,8 @@
 //! All sort of events and their parsers.
 
-#[cfg(feature = "std")]
-use crate::primitive::write_varlen_slice;
 use crate::{
     prelude::*,
-    primitive::{read_varlen_slice, SmpteTime},
+    primitive::{read_varlen_slice, write_varlen_slice, SmpteTime},
 };
 
 /// Represents a parsed SMF track event.
@@ -281,7 +279,6 @@ impl MidiMessage {
         })
     }
     /// Get the raw status nibble for this MIDI message type.
-    #[cfg(feature = "std")]
     fn status_nibble(&self) -> u8 {
         match self {
             MidiMessage::NoteOff { .. } => 0x8,
@@ -293,7 +290,6 @@ impl MidiMessage {
             MidiMessage::PitchBend { .. } => 0xE,
         }
     }
-    #[cfg(feature = "std")]
     fn write<W: Write>(&self, out: &mut W) -> IoResult<W> {
         match self {
             MidiMessage::NoteOff { key, vel } => out.write_all(&[key.as_int(), vel.as_int()])?,
@@ -449,7 +445,6 @@ impl<'a> MetaMessage<'a> {
             _ => MetaMessage::Unknown(type_byte, data),
         })
     }
-    #[cfg(feature = "std")]
     fn write<W: Write>(&self, out: &mut W) -> IoResult<W> {
         let mut write_msg = |type_byte: u8, data: &[u8]| {
             out.write_all(&[type_byte])?;

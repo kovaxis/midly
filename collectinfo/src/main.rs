@@ -1,4 +1,4 @@
-use midly::{Smf, SmfBytemap};
+use midly::Smf;
 use std::{
     env,
     error::Error,

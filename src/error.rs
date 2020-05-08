@@ -4,7 +4,7 @@ use core::fmt;
 mod error_impl {
     use super::{Error, ErrorExt, ErrorKind};
 
-    pub type ErrorInner = Box<Chained>;
+    pub type ErrorInner = alloc::boxed::Box<Chained>;
 
     #[derive(Clone, Debug)]
     pub struct Chained {
@@ -20,20 +20,22 @@ mod error_impl {
         }
         fn chain_ctx(self, ctx: &'static ErrorKind) -> Error {
             Error {
-                inner: Box::new(Chained {
+                inner: Chained {
                     this: ctx,
                     src: Some(self),
-                }),
+                }
+                .into(),
             }
         }
     }
     impl From<&'static ErrorKind> for Error {
         fn from(kind: &'static ErrorKind) -> Error {
             Error {
-                inner: Box::new(Chained {
+                inner: Chained {
                     this: kind,
                     src: None,
-                }),
+                }
+                .into(),
             }
         }
     }
