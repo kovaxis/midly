@@ -60,12 +60,7 @@ impl Smf<'_> {
     }
 
     pub fn write<W: Write>(&self, out: &mut W) -> IoResult<W> {
-        write(
-            &self.header,
-            self.tracks.len(),
-            |idx| self.tracks[idx].iter(),
-            out,
-        )
+        write(&self.header, &self.tracks, out)
     }
 
     #[cfg(feature = "std")]
@@ -100,8 +95,9 @@ impl<'a> SmfBytemap<'a> {
     pub fn write<W: Write>(&self, out: &mut W) -> IoResult<W> {
         write(
             &self.header,
-            self.tracks.len(),
-            |idx| self.tracks[idx].iter().map(|(_bytes, ev)| ev),
+            self.tracks
+                .iter()
+                .map(|bytemapped| bytemapped.iter().map(|(_b, ev)| ev)),
             out,
         )
     }
@@ -131,14 +127,18 @@ fn validate_smf(header: &Header, track_count_hint: u16, track_count: usize) -> R
 }
 
 pub fn parse(raw: &[u8]) -> Result<(Header, TrackIter)> {
-    let raw = riff::unwrap(raw).unwrap_or(raw);
-    let mut chunks = ChunkIter::read(raw);
+    let raw = match raw.get(..4) {
+        Some(b"RIFF") => riff::unwrap(raw)?,
+        Some(b"MThd") => raw,
+        _ => bail!(err_invalid!("not a midi file")),
+    };
+    let mut chunks = ChunkIter::new(raw);
     let (header, track_count) = match chunks.next() {
         Some(maybe_chunk) => match maybe_chunk.context(err_invalid!("invalid midi header"))? {
             Chunk::Header(header, track_count) => Ok((header, track_count)),
             Chunk::Track(_) => Err(err_invalid!("expected header, found track")),
         },
-        None => Err(err_invalid!("no header chunk")),
+        None => Err(err_invalid!("no midi header chunk")),
     }?;
     let tracks = chunks.as_tracks(track_count);
     Ok((header, tracks))
@@ -151,31 +151,35 @@ pub fn parse(raw: &[u8]) -> Result<(Header, TrackIter)> {
 /// tracks or chunk sizes are over 4GB).
 ///
 /// This function will make use of multiple threads if the `std` feature is enabled.
-pub fn write<'a, F, E, W>(header: &Header, tracks: usize, get_track: F, out: &mut W) -> IoResult<W>
+pub fn write<'a, T, E, W>(header: &Header, tracks: T, out: &mut W) -> IoResult<W>
 where
-    F: Fn(usize) -> E + Send + Sync,
-    E: Iterator<Item = &'a Event<'a>> + Clone + Send,
+    T: IntoIterator<Item = E>,
+    T::IntoIter: ExactSizeIterator + Clone + Send,
+    E: IntoIterator<Item = &'a Event<'a>>,
+    E::IntoIter: Clone + Send,
     W: Write,
 {
+    let tracks = tracks.into_iter().map(|events| events.into_iter());
     //Write the header first
-    Chunk::write_header(header, tracks, out)?;
+    Chunk::write_header(header, tracks.len(), out)?;
 
     //Try to write the file in parallel
     #[cfg(feature = "parallel")]
     {
         //Figure out whether multithreading is worth it
-        let event_count = (0..tracks)
-            .map(|idx| get_track(idx).size_hint().0)
+        let event_count = tracks
+            .clone()
+            .map(|track| track.into_iter().size_hint().0)
             .sum::<usize>();
         if (event_count as f32 * BYTES_PER_EVENT) > PARALLEL_ENABLE_THRESHOLD as f32 {
             use rayon::prelude::*;
 
             //Write out the tracks in parallel into several different buffers
             let mut track_chunks = Vec::new();
-            (0..tracks)
+            tracks
+                .collect::<Vec<_>>()
                 .into_par_iter()
-                .map(|idx| {
-                    let track = get_track(idx);
+                .map(|track| {
                     let mut track_chunk = Vec::new();
                     Chunk::write_to_vec(track, &mut track_chunk)
                         .map_err(|msg| W::invalid_input(msg))?;
@@ -196,7 +200,7 @@ where
     {
         //Write the tracks into a buffer before writing out to the file
         let mut buf = Vec::new();
-        for track in (0..tracks).map(get_track) {
+        for track in tracks {
             Chunk::write_to_vec(track, &mut buf).map_err(|msg| W::invalid_input(msg))?;
             out.write_all(&buf)?;
         }
@@ -207,14 +211,14 @@ where
     {
         if let Some(out) = out.make_seekable() {
             //Write down using seeks if the writer is seekable
-            for track in (0..tracks).map(get_track) {
+            for track in tracks {
                 Chunk::write_seek(track, out)?;
             }
         } else {
             //Last resort: do probe-writing.
             //Two passes are done: one to find out the size of the chunk and another to actually
             //write the chunk.
-            for track in (0..tracks).map(get_track) {
+            for track in tracks {
                 Chunk::write_probe(track, out)?;
             }
         }
@@ -228,7 +232,7 @@ struct ChunkIter<'a> {
     raw: &'a [u8],
 }
 impl<'a> ChunkIter<'a> {
-    fn read(raw: &'a [u8]) -> ChunkIter {
+    fn new(raw: &'a [u8]) -> ChunkIter {
         ChunkIter { raw }
     }
 
@@ -427,12 +431,12 @@ impl<'a> TrackIter<'a> {
 
     #[cfg(feature = "alloc")]
     pub fn collect_events(self) -> Result<Vec<Vec<Event<'a>>>> {
-        self.generic_collect(EventIter::collect)
+        self.generic_collect(EventIter::to_vec)
     }
 
     #[cfg(feature = "alloc")]
     pub fn collect_bytemapped(self) -> Result<Vec<Vec<(&'a [u8], Event<'a>)>>> {
-        self.generic_collect(|events| events.bytemapped().collect())
+        self.generic_collect(|events| events.bytemapped().to_vec())
     }
 
     #[cfg(feature = "alloc")]
@@ -502,6 +506,86 @@ impl<'a> Iterator for TrackIter<'a> {
     }
 }
 
+trait EventKind<'a> {
+    type Event: 'a;
+    fn read_ev(raw: &mut &'a [u8], running_status: &mut Option<u8>) -> Result<Self::Event>;
+}
+
+#[derive(Clone, Debug)]
+struct EventIterGeneric<'a, T> {
+    raw: &'a [u8],
+    running_status: Option<u8>,
+    _kind: PhantomData<T>,
+}
+impl<'a, T: EventKind<'a>> EventIterGeneric<'a, T> {
+    fn new(raw: &[u8]) -> EventIterGeneric<T> {
+        EventIterGeneric {
+            raw,
+            running_status: None,
+            _kind: PhantomData,
+        }
+    }
+
+    /// Get the remaining unread bytes.
+    fn unread(&self) -> &'a [u8] {
+        self.raw
+    }
+
+    /// Get the current running status of the track.
+    fn running_status(&self) -> Option<u8> {
+        self.running_status
+    }
+
+    /// Modify the current running status of the track.
+    fn running_status_mut(&mut self) -> &mut Option<u8> {
+        &mut self.running_status
+    }
+
+    fn estimate_bytes(&self) -> usize {
+        (self.raw.len() as f32 * EVENTS_PER_BYTE) as usize
+    }
+
+    #[cfg(feature = "alloc")]
+    fn to_vec(mut self) -> Result<Vec<T::Event>> {
+        let mut events = Vec::with_capacity(self.estimate_bytes());
+        while self.raw.len() > 0 {
+            match T::read_ev(&mut self.raw, &mut self.running_status) {
+                Ok(ev) => events.push(ev),
+                Err(err) => {
+                    self.raw = &[];
+                    if cfg!(feature = "strict") {
+                        Err(err).context(err_malformed!("malformed event"))?;
+                    } else {
+                        //Stop reading track silently on failure
+                        break;
+                    }
+                }
+            }
+        }
+        Ok(events)
+    }
+}
+impl<'a, T: EventKind<'a>> Iterator for EventIterGeneric<'a, T> {
+    type Item = Result<T::Event>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.raw.len() > 0 {
+            match T::read_ev(&mut self.raw, &mut self.running_status) {
+                Ok(ev) => Some(Ok(ev)),
+                Err(err) => {
+                    self.raw = &[];
+                    if cfg!(feature = "strict") {
+                        Some(Err(err).context(err_malformed!("malformed event")))
+                    } else {
+                        None
+                    }
+                }
+            }
+        } else {
+            None
+        }
+    }
+}
+
 /// An iterator of events over a single track.
 /// Allows deferring the parsing of tracks for later, on an on-demand basis.
 ///
@@ -509,158 +593,97 @@ impl<'a> Iterator for TrackIter<'a> {
 /// This `struct` is very light, so it can be cloned freely.
 #[derive(Clone, Debug)]
 pub struct EventIter<'a> {
-    raw: &'a [u8],
-    running_status: Option<u8>,
+    inner: EventIterGeneric<'a, Self>,
+}
+impl<'a> EventKind<'a> for EventIter<'a> {
+    type Event = Event<'a>;
+    fn read_ev(raw: &mut &'a [u8], rs: &mut Option<u8>) -> Result<Event<'a>> {
+        Event::read(raw, rs)
+    }
 }
 impl<'a> EventIter<'a> {
     pub fn new(raw: &[u8]) -> EventIter {
         EventIter {
-            raw,
-            running_status: None,
+            inner: EventIterGeneric::new(raw),
         }
     }
 
     /// Get the remaining unread bytes.
     pub fn unread(&self) -> &'a [u8] {
-        self.raw
+        self.inner.unread()
     }
 
     /// Get the current running status of the track.
     pub fn running_status(&self) -> Option<u8> {
-        self.running_status
+        self.inner.running_status()
     }
 
     /// Modify the current running status of the track.
     pub fn running_status_mut(&mut self) -> &mut Option<u8> {
-        &mut self.running_status
+        self.inner.running_status_mut()
     }
 
     pub fn bytemapped(self) -> EventBytemapIter<'a> {
         EventBytemapIter {
-            raw: self.raw,
-            running_status: self.running_status,
+            inner: EventIterGeneric {
+                raw: self.inner.raw,
+                running_status: self.inner.running_status,
+                _kind: PhantomData,
+            },
         }
     }
 
     #[cfg(feature = "alloc")]
-    pub fn collect(mut self) -> Result<Vec<Event<'a>>> {
-        let mut events = Vec::with_capacity(self.size_hint().0);
-        while self.raw.len() > 0 {
-            match Event::read(&mut self.raw, &mut self.running_status) {
-                Ok(ev) => events.push(ev),
-                Err(err) => {
-                    self.raw = &[];
-                    if cfg!(feature = "strict") {
-                        Err(err).context(err_malformed!("malformed event"))?;
-                    } else {
-                        //Stop reading track silently on failure
-                        break;
-                    }
-                }
-            }
-        }
-        Ok(events)
+    pub fn to_vec(self) -> Result<Vec<Event<'a>>> {
+        self.inner.to_vec()
     }
 }
 impl<'a> Iterator for EventIter<'a> {
     type Item = Result<Event<'a>>;
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (
-            (self.raw.len() as f32 * EVENTS_PER_BYTE) as usize,
-            Some(self.raw.len()),
-        )
-    }
-
     fn next(&mut self) -> Option<Self::Item> {
-        if self.raw.len() > 0 {
-            match Event::read(&mut self.raw, &mut self.running_status) {
-                Ok(ev) => Some(Ok(ev)),
-                Err(err) => {
-                    self.raw = &[];
-                    if cfg!(feature = "strict") {
-                        Some(Err(err).context(err_malformed!("malformed event")))
-                    } else {
-                        None
-                    }
-                }
-            }
-        } else {
-            None
-        }
+        self.inner.next()
     }
 }
 
 pub struct EventBytemapIter<'a> {
-    raw: &'a [u8],
-    running_status: Option<u8>,
+    inner: EventIterGeneric<'a, Self>,
+}
+impl<'a> EventKind<'a> for EventBytemapIter<'a> {
+    type Event = (&'a [u8], Event<'a>);
+    fn read_ev(raw: &mut &'a [u8], rs: &mut Option<u8>) -> Result<Self::Event> {
+        Event::read_bytemap(raw, rs)
+    }
 }
 impl<'a> EventBytemapIter<'a> {
     pub fn new(raw: &[u8]) -> EventBytemapIter {
         EventBytemapIter {
-            raw,
-            running_status: None,
+            inner: EventIterGeneric::new(raw),
         }
     }
 
     /// Get the remaining unread bytes.
     pub fn unread(&self) -> &'a [u8] {
-        self.raw
+        self.inner.unread()
     }
 
     /// Get the current running status of the track.
     pub fn running_status(&self) -> Option<u8> {
-        self.running_status
+        self.inner.running_status()
     }
 
     /// Modify the current running status of the track.
     pub fn running_status_mut(&mut self) -> &mut Option<u8> {
-        &mut self.running_status
+        self.inner.running_status_mut()
     }
 
     #[cfg(feature = "alloc")]
-    pub fn collect(mut self) -> Result<Vec<(&'a [u8], Event<'a>)>> {
-        let mut events = Vec::with_capacity(self.size_hint().0);
-        while self.raw.len() > 0 {
-            match Event::read_bytemap(&mut self.raw, &mut self.running_status) {
-                Ok(ev) => events.push(ev),
-                Err(err) => {
-                    self.raw = &[];
-                    if cfg!(feature = "strict") {
-                        Err(err).context(err_malformed!("malformed event"))?;
-                    } else {
-                        //Stop reading track silently on failure
-                        break;
-                    }
-                }
-            }
-        }
-        Ok(events)
+    pub fn to_vec(self) -> Result<Vec<(&'a [u8], Event<'a>)>> {
+        self.inner.to_vec()
     }
 }
 impl<'a> Iterator for EventBytemapIter<'a> {
     type Item = Result<(&'a [u8], Event<'a>)>;
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (
-            (self.raw.len() as f32 * EVENTS_PER_BYTE) as usize,
-            Some(self.raw.len()),
-        )
-    }
     fn next(&mut self) -> Option<Self::Item> {
-        if self.raw.len() > 0 {
-            match Event::read_bytemap(&mut self.raw, &mut self.running_status) {
-                Ok(ev) => Some(Ok(ev)),
-                Err(err) => {
-                    self.raw = &[];
-                    if cfg!(feature = "strict") {
-                        Some(Err(err).context(err_malformed!("malformed event")))
-                    } else {
-                        None
-                    }
-                }
-            }
-        } else {
-            None
-        }
+        self.inner.next()
     }
 }

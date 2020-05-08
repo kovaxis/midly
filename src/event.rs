@@ -342,10 +342,10 @@ pub enum MetaMessage<'a> {
     /// `false` indicates a major scale, `true` indicates a minor scale.
     KeySignature(i8, bool),
     SequencerSpecific(&'a [u8]),
-    /// An unknown or malformed meta-message, unconforming to the spec.
+    /// An unknown or malformed meta-message.
     ///
-    /// If the `strict` feature is enabled this variant will never be generated: an error will be
-    /// raised if this kind of meta message is encountered.
+    /// The first `u8` is the raw meta-message identifier byte.
+    /// The slice is the actual payload of the meta-message.
     Unknown(u8, &'a [u8]),
 }
 impl<'a> MetaMessage<'a> {

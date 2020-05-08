@@ -29,19 +29,23 @@ impl<'a> Iterator for ChunkIter<'a> {
     }
 }
 
-pub fn unwrap(raw: &[u8]) -> Option<&[u8]> {
-    let (id, mut riff) = ChunkIter(raw).next()?;
+pub fn unwrap(raw: &[u8]) -> Result<&[u8]> {
+    let (id, mut riff) = ChunkIter(raw)
+        .next()
+        .ok_or(err_invalid!("no main riff chunk"))?;
     if &id != b"RIFF" {
-        return None;
+        bail!(err_invalid!("invalid main riff chunk"));
     }
-    let formtype = riff.split_checked(4)?;
+    let formtype = riff
+        .split_checked(4)
+        .ok_or(err_invalid!("failed to read riff formtype"))?;
     if formtype != b"RMID" {
-        return None;
+        bail!(err_invalid!("not an rmid riff file"));
     }
     for (id, chunk) in ChunkIter(riff) {
         if &id == b"data" {
-            return Some(chunk);
+            return Ok(chunk);
         }
     }
-    None
+    bail!(err_invalid!("no rmid data chunk"))
 }
