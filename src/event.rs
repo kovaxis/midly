@@ -34,12 +34,11 @@ impl<'a> Event<'a> {
         Ok(Event { delta, kind })
     }
 
-    #[cfg(feature = "std")]
     pub(crate) fn write<W: Write>(
         &self,
         running_status: &mut Option<u8>,
         out: &mut W,
-    ) -> IoResult<()> {
+    ) -> IoResult<W> {
         self.delta.write_varlen(out)?;
         self.kind.write(running_status, out)?;
         Ok(())
@@ -139,8 +138,7 @@ impl<'a> EventKind<'a> {
     /// to `None`.
     ///
     /// If you wish to disable running status, pass in `&mut None` to all calls to this method.
-    #[cfg(feature = "std")]
-    pub fn write<W: Write>(&self, running_status: &mut Option<u8>, out: &mut W) -> IoResult<()> {
+    pub fn write<W: Write>(&self, running_status: &mut Option<u8>, out: &mut W) -> IoResult<W> {
         //Running Status rules:
         // - MIDI Messages (0x80 ..= 0xEF) alter and use running status
         // - System Common (0xF0 ..= 0xF7) cancel and cannot use running status
@@ -285,7 +283,7 @@ impl MidiMessage {
         }
     }
     #[cfg(feature = "std")]
-    fn write<W: Write>(&self, out: &mut W) -> IoResult<()> {
+    fn write<W: Write>(&self, out: &mut W) -> IoResult<W> {
         match self {
             MidiMessage::NoteOff { key, vel } => out.write_all(&[key.as_int(), vel.as_int()])?,
             MidiMessage::NoteOn { key, vel } => out.write_all(&[key.as_int(), vel.as_int()])?,
@@ -441,7 +439,7 @@ impl<'a> MetaMessage<'a> {
         })
     }
     #[cfg(feature = "std")]
-    fn write<W: Write>(&self, out: &mut W) -> IoResult<()> {
+    fn write<W: Write>(&self, out: &mut W) -> IoResult<W> {
         let mut write_msg = |type_byte: u8, data: &[u8]| {
             out.write_all(&[type_byte])?;
             write_varlen_slice(data, out)?;

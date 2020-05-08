@@ -176,7 +176,7 @@ impl IntReadBottom7 for u28 {
 
 #[cfg(feature = "std")]
 impl u28 {
-    pub(crate) fn write_varlen<W: Write>(&self, out: &mut W) -> IoResult<()> {
+    pub(crate) fn write_varlen<W: Write>(&self, out: &mut W) -> IoResult<W> {
         let int = self.as_int();
         let mut skipping = true;
         for i in (0..4).rev() {
@@ -219,11 +219,11 @@ pub(crate) fn read_varlen_slice<'a>(raw: &mut &'a [u8]) -> Result<&'a [u8]> {
 
 #[cfg(feature = "std")]
 /// Write a slice represented as a varlen `u28` as its length and then the raw bytes.
-pub(crate) fn write_varlen_slice<W: Write>(slice: &[u8], out: &mut W) -> IoResult<()> {
+pub(crate) fn write_varlen_slice<W: Write>(slice: &[u8], out: &mut W) -> IoResult<W> {
     let len = u32::try_from(slice.len())
         .ok()
         .and_then(|len| u28::try_from(len))
-        .ok_or_else(|| IoError::new(io::ErrorKind::InvalidInput, "chunk size exceeds 28 bits"))?;
+        .ok_or_else(|| W::invalid_input("varlen slice exceeds 28 bits"))?;
     len.write_varlen(out)?;
     out.write_all(slice)?;
     Ok(())

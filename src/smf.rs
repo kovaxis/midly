@@ -30,13 +30,19 @@ impl Smf<'_> {
         Ok(Smf { header, tracks })
     }
 
-    pub fn write<W: Write>(&self, out: &mut W) -> IoResult<()> {
-        write(&self.header, self.tracks.iter(), out)
+    pub fn write<W: Write>(&self, out: &mut W) -> IoResult<W> {
+        write(
+            &self.header,
+            self.tracks.len(),
+            |idx| self.tracks[idx].iter(),
+            out,
+        )
     }
 
-    pub fn save<P: AsRef<Path>>(&self, path: P) -> IoResult<()> {
-        fn save_impl(smf: &Smf, path: &Path) -> IoResult<()> {
-            smf.write(&mut File::create(path)?)
+    #[cfg(feature = "std")]
+    pub fn save<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
+        fn save_impl(smf: &Smf, path: &Path) -> io::Result<()> {
+            smf.write(&mut SeekWrap(File::create(path)?))
         }
         save_impl(self, path.as_ref())
     }
@@ -60,19 +66,19 @@ impl<'a> SmfBytemap<'a> {
         Ok(SmfBytemap { header, tracks })
     }
 
-    pub fn write<W: Write>(&self, out: &mut W) -> IoResult<()> {
+    pub fn write<W: Write>(&self, out: &mut W) -> IoResult<W> {
         write(
             &self.header,
-            self.tracks
-                .iter()
-                .map(|track| track.iter().map(|(_b, ev)| ev)),
+            self.tracks.len(),
+            |idx| self.tracks[idx].iter().map(|(_bytes, ev)| ev),
             out,
         )
     }
 
-    pub fn save<P: AsRef<Path>>(&self, path: P) -> IoResult<()> {
-        fn save_impl(smf: &SmfBytemap, path: &Path) -> IoResult<()> {
-            smf.write(&mut File::create(path)?)
+    #[cfg(feature = "std")]
+    pub fn save<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
+        fn save_impl(smf: &SmfBytemap, path: &Path) -> io::Result<()> {
+            smf.write(&mut SeekWrap(File::create(path)?))
         }
         save_impl(self, path.as_ref())
     }
@@ -113,52 +119,75 @@ pub fn parse(raw: &[u8]) -> Result<(Header, TrackIter)> {
 /// tracks or chunk sizes are over 4GB).
 ///
 /// This function will make use of multiple threads if the `std` feature is enabled.
-#[cfg(feature = "std")]
-pub fn write<'a, W: Write>(
-    header: &Header,
-    tracks: impl Iterator<Item = impl IntoIterator<Item = &'a Event<'a>>> + ExactSizeIterator,
-    out: &mut W,
-) -> IoResult<()> {
+pub fn write<'a, F, E, W>(header: &Header, tracks: usize, get_track: F, out: &mut W) -> IoResult<W>
+where
+    F: Fn(usize) -> E + Send + Sync,
+    E: Iterator<Item = &'a Event<'a>> + Clone + Send,
+    W: Write,
+{
     //Write the header first
-    Chunk::write_header(header, tracks.len(), out)?;
+    Chunk::write_header(header, tracks, out)?;
 
     //Try to write the file in parallel
-    /*
-    #[cfg(feature = "std")]
+    #[cfg(feature = "parallel")]
     {
-        if T::USE_MULTITHREADING {
+        //Figure out whether multithreading is worth it
+        let event_count = (0..tracks)
+            .map(|idx| get_track(idx).size_hint().0)
+            .sum::<usize>();
+        if (event_count as f32 * AVG_BYTES_PER_EVENT) > PARALLEL_ENABLE_THRESHOLD as f32 {
             use rayon::prelude::*;
 
             //Write out the tracks in parallel into several different buffers
-            let track_chunks = self
-                .tracks
-                .par_iter()
-                .map(|track| {
-                    let mut track_chunk = Vec::with_capacity(8 * 1024);
-                    Chunk::write_track(track, &mut track_chunk)?;
+            let mut track_chunks = Vec::new();
+            (0..tracks)
+                .into_par_iter()
+                .map(|idx| {
+                    let track = get_track(idx);
+                    let mut track_chunk = Vec::new();
+                    Chunk::write_to_vec(track, &mut track_chunk)
+                        .map_err(|msg| W::invalid_input(msg))?;
                     Ok(track_chunk)
                 })
-                .collect::<IoResult<Vec<_>>>()?;
+                .collect_into_vec(&mut track_chunks);
 
             //Write down the tracks sequentially and in order
-            for track_chunk in track_chunks {
+            for result in track_chunks {
+                let track_chunk = result?;
                 out.write_all(&track_chunk)?;
             }
             return Ok(());
         }
     }
-    */
 
-    //Fall back to writing the file serially
-    //Write tracks into a reusable buffer before writing them out
-    let mut track_chunk = Vec::with_capacity(8 * 1024);
-    for track in tracks {
-        //Write tracks into a buffer first so that chunk lengths can be written
-        Chunk::write_track(track, &mut track_chunk)?;
-        out.write_all(&track_chunk[..])?;
-        track_chunk.clear();
+    #[cfg(feature = "alloc")]
+    {
+        //Write the tracks into a buffer before writing out to the file
+        let mut buf = Vec::new();
+        for track in (0..tracks).map(get_track) {
+            Chunk::write_to_vec(track, &mut buf).map_err(|msg| W::invalid_input(msg))?;
+            out.write_all(&buf)?;
+        }
+        return Ok(());
     }
-    Ok(())
+
+    #[allow(unreachable_code)]
+    {
+        if let Some(out) = out.make_seekable() {
+            //Write down using seeks if the writer is seekable
+            for track in (0..tracks).map(get_track) {
+                Chunk::write_seek(track, out)?;
+            }
+        } else {
+            //Last resort: do probe-writing.
+            //Two passes are done: one to find out the size of the chunk and another to actually
+            //write the chunk.
+            for track in (0..tracks).map(get_track) {
+                Chunk::write_probe(track, out)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -240,15 +269,10 @@ impl<'a> Chunk<'a> {
     }
 
     /// Write a header chunk into a writer.
-    #[cfg(feature = "std")]
-    fn write_header<W: Write>(header: &Header, track_count: usize, out: &mut W) -> IoResult<()> {
+    fn write_header<W: Write>(header: &Header, track_count: usize, out: &mut W) -> IoResult<W> {
         let mut header_chunk = [0; 4 + 4 + 6];
-        let track_count = u16::try_from(track_count).map_err(|_| {
-            IoError::new(
-                io::ErrorKind::InvalidInput,
-                "track count exceeds 16 bit range",
-            )
-        })?;
+        let track_count = u16::try_from(track_count)
+            .map_err(|_| W::invalid_input("track count exceeds 16 bit range"))?;
         let header = header.encode(track_count);
         header_chunk[0..4].copy_from_slice(&b"MThd"[..]);
         header_chunk[4..8].copy_from_slice(&(header.len() as u32).to_be_bytes()[..]);
@@ -257,29 +281,78 @@ impl<'a> Chunk<'a> {
         Ok(())
     }
 
-    /// Write a track chunk into a `Vec`.
+    /// Write a single track chunk using the probe method.
     ///
-    /// The `Vec` should be empty.
-    #[cfg(feature = "std")]
-    fn write_track(
-        track: impl IntoIterator<Item = &'a Event<'a>>,
+    /// When probing, the chunk is written twice: one to find out the length of the chunk and again
+    /// to actually write the chunk contents.
+    fn write_probe<W: Write>(
+        track: impl Iterator<Item = &'a Event<'a>> + Clone,
+        out: &mut W,
+    ) -> IoResult<W> {
+        let mut counter = WriteCounter(0);
+        Self::write_raw(track.clone(), &mut counter).map_err(W::invalid_input)?;
+        let len = Self::check_len::<W, _>(counter.0)?;
+        let mut head = [b'M', b'T', b'r', b'k', 0, 0, 0, 0];
+        head[4..8].copy_from_slice(&len);
+        out.write_all(&head)?;
+        Self::write_raw(track, out)?;
+        Ok(())
+    }
+
+    /// Write a single chunk using the seek method.
+    ///
+    /// The chunk is written once, then the writer is seeked back and the chunk length is written
+    /// last.
+    fn write_seek<W: Write + Seek>(
+        track: impl Iterator<Item = &'a Event<'a>>,
+        out: &mut W,
+    ) -> IoResult<W> {
+        out.write_all(b"MTrk\0\0\0\0")?;
+        let start = out.tell()?;
+        Self::write_raw(track, out)?;
+        let len = Self::check_len::<W, _>(out.tell()? - start)?;
+        out.write_at(&len, start - 4)?;
+        Ok(())
+    }
+
+    /// Write a chunk to an in-memory `Vec`.
+    ///
+    /// Because the output is in-memory, the chunk can simply wind back and write the chunk length
+    /// last.
+    #[cfg(feature = "alloc")]
+    fn write_to_vec(
+        track: impl Iterator<Item = &'a Event<'a>>,
         out: &mut Vec<u8>,
-    ) -> IoResult<()> {
+    ) -> IoResult<Vec<u8>> {
+        let cap = (track.size_hint().0 as f32 * AVG_BYTES_PER_EVENT) as usize;
+        out.clear();
+        out.reserve(cap);
         out.extend_from_slice(b"MTrk\0\0\0\0");
+        Self::write_raw(track, out)?;
+        let len = Self::check_len::<Vec<u8>, _>(out.len() - 8)?;
+        out[4..8].copy_from_slice(&len);
+        Ok(())
+    }
+
+    /// Utility method. Iterate over the events of a track and write them out.
+    fn write_raw<W: Write>(track: impl Iterator<Item = &'a Event<'a>>, out: &mut W) -> IoResult<W> {
         let mut running_status = None;
-        let events = track.into_iter();
-        out.reserve(events.size_hint().0);
-        for ev in events {
+        for ev in track {
             ev.write(&mut running_status, out)?;
         }
-        let len = u32::try_from(out.len() - 8).map_err(|_| {
-            IoError::new(
-                io::ErrorKind::InvalidInput,
-                "midi chunk size exceeds 32 bit range",
-            )
-        })?;
-        out[4..8].copy_from_slice(&len.to_be_bytes());
         Ok(())
+    }
+
+    /// Utility method. Given an arbitrary-width length, fit it into a 32-bit big-endian integer,
+    /// reporting an error if it does not fit.
+    fn check_len<W, T>(len: T) -> StdResult<[u8; 4], W::Error>
+    where
+        u32: TryFrom<T>,
+        W: Write,
+    {
+        let len = u32::try_from(len)
+            .map_err(|_| W::invalid_input("midi chunk size exceeds 32 bit range"))?;
+        Ok(len.to_be_bytes())
     }
 }
 
