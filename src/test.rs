@@ -243,9 +243,7 @@ fn test_stream_api(file: &str) {
                 byte_stream.extend_from_slice(bytes);
                 //Add an expected event
                 expected_evs.push(EventData {
-                    //Note that midi events don't fire when the next event starts, they fire just
-                    //as the last data byte fires
-                    fired_at: byte_stream.len() - 1,
+                    fired_at: byte_stream.len(),
                     event: Ok(StreamEvent::Midi { channel, message }),
                 });
             }

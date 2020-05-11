@@ -341,13 +341,13 @@ impl MidiStream {
         }
     }
 
-    fn event(&mut self, status: u8, handle_ev: &mut dyn FnMut(StreamEvent)) {
+    fn event(&mut self, status: u8, mut handle_ev: impl FnMut(StreamEvent)) {
         if let Ok(ev) = StreamEvent::read(status, &self.data[..]) {
             handle_ev(ev);
         }
     }
 
-    fn feed_byte(&mut self, byte: u8, handle_ev: &mut dyn FnMut(StreamEvent)) {
+    fn feed_byte(&mut self, byte: u8, mut handle_ev: impl FnMut(StreamEvent)) {
         if let Some(byte) = u7::try_from(byte) {
             //Data byte
             if let Some(status) = self.status {
@@ -384,32 +384,18 @@ impl MidiStream {
         }
     }
 
-    fn feed_impl(&mut self, bytes: &[u8], handle_ev: &mut dyn FnMut(StreamEvent)) {
+    pub fn feed(&mut self, bytes: &[u8], mut handle_ev: impl FnMut(StreamEvent)) {
         for &byte in bytes {
-            self.feed_byte(byte, handle_ev);
+            self.feed_byte(byte, &mut handle_ev);
         }
     }
 
-    pub fn feed(&mut self, bytes: &[u8], mut handle_ev: impl FnMut(StreamEvent)) {
-        self.feed_impl(bytes, &mut handle_ev)
-    }
-
-    fn flush_impl(&mut self, handle_ev: &mut dyn FnMut(StreamEvent)) {
+    pub fn flush(&mut self, handle_ev: impl FnMut(StreamEvent)) {
         if let Some(status) = self.status.take() {
             self.event(status, handle_ev);
             self.status = None;
             self.data.clear();
         }
-    }
-
-    pub fn flush(&mut self, mut handle_ev: impl FnMut(StreamEvent)) {
-        self.flush_impl(&mut handle_ev);
-    }
-
-    /// Equivalent to a call to `feed` followed by a call to `flush`.
-    pub fn parse(&mut self, bytes: &[u8], mut handle_ev: impl FnMut(StreamEvent)) {
-        self.feed_impl(bytes, &mut handle_ev);
-        self.flush_impl(&mut handle_ev);
     }
 }
 
