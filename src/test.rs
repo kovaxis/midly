@@ -1,10 +1,10 @@
 use crate::{Event, EventIter, Result as MidlyResult};
-use std::{fs, time::Instant};
+use std::{fs, path::Path, time::Instant};
 
 /// Open and read the content of a file.
 macro_rules! open {
     {$name:ident : $file:expr} => {
-        let $name = fs::read(concat!("test-asset/", $file)).unwrap();
+        let $name = fs::read(AsRef::<Path>::as_ref("test-asset").join($file)).unwrap();
     };
     {$name:ident : [$parse:ident] $file:expr} => {
         let $name = match $parse::Smf::parse(&$file[..]) {
@@ -19,8 +19,8 @@ macro_rules! open {
 
 /// Macro for parsing a MIDI file.
 macro_rules! test {
-    {($name:expr , $file:expr) => $parse_method:ident} => {{
-        let counts = time($name, ||->Vec<_> {
+    {$file:expr => $parse_method:ident} => {{
+        let counts = time(&$file.to_string(), ||->Vec<_> {
             open!{file: $file};
             open!{smf: [$parse_method] file};
             smf.tracks.into_iter().map(|track| $parse_method::len(&file[..], track)).collect()
@@ -44,25 +44,23 @@ impl crate::io::Write for Vec<u8> {
     }
 }
 
-macro_rules! test_rewrite {
-    ($name:expr, $file:expr) => {{
-        println!("parsing...");
-        open! {smf: $file};
-        open! {smf: [parse_collect] smf};
-        println!("rewriting...");
-        let mut file = Vec::with_capacity(16 * 1024);
-        time(concat!($name, "[rewrite]"), || {
-            smf.write(&mut file).expect("failed to rewrite midi file");
-        });
-        println!("reparsing...");
-        let clone_smf = time(concat!($name, "[reparse]"), || {
-            parse_collect::Smf::parse(&file).expect("failed to reparse midi file")
-        });
-        assert_eq!(
-            smf, clone_smf,
-            "reparsed midi file is not identical to the original"
-        );
-    }};
+fn test_rewrite(filename: &str) {
+    println!("parsing...");
+    open! {smf: filename};
+    open! {smf: [parse_collect] smf};
+    println!("rewriting...");
+    let mut file = Vec::with_capacity(16 * 1024);
+    time(&format!("{} (rewrite)", filename), || {
+        smf.write(&mut file).expect("failed to rewrite midi file");
+    });
+    println!("reparsing...");
+    let clone_smf = time(&format!("{} (reparse)", filename), || {
+        parse_collect::Smf::parse(&file).expect("failed to reparse midi file")
+    });
+    assert_eq!(
+        smf, clone_smf,
+        "reparsed midi file is not identical to the original"
+    );
 }
 
 mod parse_collect {
@@ -173,60 +171,261 @@ fn time<F: FnOnce() -> R, R>(activity: &str, op: F) -> R {
     result
 }
 
+fn test_event_api(file: &str) {
+    open! {file: file};
+    open! {smf: [parse_bytemap] file};
+    for (bytes, ev) in smf.tracks.iter().flat_map(|track| track.iter()) {
+        use crate::{num::u7, EventKind, StreamEvent, SystemCommon};
+        match ev.kind {
+            EventKind::Midi { channel, message } => {
+                let mut raw_bytes;
+                let stream_ev = if bytes.first().map(|&b| b < 0x80).unwrap_or(true) {
+                    raw_bytes = vec![message.status_nibble() << 4 | channel.as_int()];
+                    raw_bytes.extend_from_slice(bytes);
+                    StreamEvent::parse(&raw_bytes[..]).unwrap()
+                } else {
+                    StreamEvent::parse(bytes).unwrap()
+                };
+                assert_eq!(stream_ev, StreamEvent::Midi { channel, message });
+            }
+            EventKind::SysEx(sysex_bytes) => {
+                assert!(
+                    sysex_bytes.last() == Some(&0xF7),
+                    "cannot test fragmented sysex with event api"
+                );
+                assert!(
+                    sysex_bytes[..sysex_bytes.len() - 1]
+                        .iter()
+                        .all(|&b| b < 0x80),
+                    "sysex byte with top bit set"
+                );
+                let mut raw_bytes = vec![0xF0];
+                raw_bytes.extend_from_slice(sysex_bytes);
+                let stream_ev = StreamEvent::parse(&raw_bytes).unwrap();
+                assert_eq!(
+                    stream_ev,
+                    StreamEvent::Common(SystemCommon::SysEx(u7::from_int_slice(sysex_bytes)))
+                );
+            }
+            EventKind::Escape(_) => {
+                panic!("cannot test arbitrary escaped with event api");
+            }
+            EventKind::Meta(_) => {}
+        }
+    }
+}
+
+fn test_stream_api(file: &str) {
+    use crate::{num::u7, EventKind, MidiStream, StreamEvent, SystemCommon, SystemRealtime};
+
+    #[derive(Debug)]
+    struct EventData<'a> {
+        fired_at: usize,
+        event: Result<StreamEvent<'a>, (usize, usize)>,
+    }
+
+    open! {file: file};
+    open! {smf: [parse_bytemap] file};
+    //Holds data bytes for sysex expected events
+    let mut sysex_bytes = Vec::new();
+    //Holds expected events
+    let mut expected_evs = Vec::new();
+    //Holds the raw reconstructed bytes to be re-parsed
+    let mut byte_stream = Vec::new();
+    for (bytes, ev) in smf.tracks.iter().flat_map(|track| track.iter()) {
+        match ev.kind {
+            EventKind::Midi { channel, message } => {
+                //Write down the status byte if missing
+                if bytes[0] < 0x80 {
+                    byte_stream.push(message.status_nibble() << 4 | channel.as_int());
+                }
+                //Write down the message bytes, directly from the source bytes
+                byte_stream.extend_from_slice(bytes);
+                //Add an expected event
+                expected_evs.push(EventData {
+                    //Note that midi events don't fire when the next event starts, they fire just
+                    //as the last data byte fires
+                    fired_at: byte_stream.len() - 1,
+                    event: Ok(StreamEvent::Midi { channel, message }),
+                });
+            }
+            EventKind::SysEx(data) => {
+                assert!(
+                    data.iter()
+                        .enumerate()
+                        .all(|(i, &b)| (i == data.len() - 1 && b == 0xF7) || b < 0x80),
+                    "sysex byte with top bit set"
+                );
+                byte_stream.push(0xF0);
+                byte_stream.extend_from_slice(data);
+                let data_start = sysex_bytes.len();
+                sysex_bytes.extend_from_slice(data);
+                let data_end = sysex_bytes.len();
+                expected_evs.push(EventData {
+                    fired_at: byte_stream.len(),
+                    event: Err((data_start, data_end)),
+                });
+            }
+            EventKind::Escape(data) => {
+                if let Some(EventData {
+                    fired_at,
+                    event: Err((_data_start, data_end)),
+                }) = expected_evs.last_mut()
+                {
+                    assert!(
+                        sysex_bytes.last() != Some(&0xF7),
+                        "escape cannot continue finished sysex"
+                    );
+                    assert!(
+                        data.iter()
+                            .enumerate()
+                            .all(|(i, &b)| (i == data.len() - 1 && b == 0xF7) || b < 0x80),
+                        "sysex byte with top bit set"
+                    );
+                    sysex_bytes.extend_from_slice(data);
+                    byte_stream.extend_from_slice(data);
+                    *data_end = sysex_bytes.len();
+                    *fired_at = byte_stream.len();
+                } else {
+                    panic!("cannot test arbitrary escape events");
+                }
+            }
+            EventKind::Meta(_) => {}
+        }
+    }
+    //Sprinkle bytestream with system realtime events
+    {
+        let mut next_idx = 3;
+        let mut next_byte = 0xFF;
+        let mut stride = 1;
+        let mut event_idx = 0;
+        let mut inserted_bytes = 0;
+        let orig_len = byte_stream.len();
+        while next_idx <= orig_len {
+            while expected_evs
+                .get(event_idx)
+                .map(|ev| ev.fired_at < next_idx)
+                .unwrap_or(false)
+            {
+                event_idx += 1;
+            }
+            byte_stream.insert(next_idx + inserted_bytes, next_byte);
+            inserted_bytes += 1;
+            expected_evs.insert(
+                event_idx,
+                EventData {
+                    fired_at: byte_stream.len() - 1,
+                    event: Ok(StreamEvent::Realtime(SystemRealtime::read(next_byte))),
+                },
+            );
+            event_idx += 1;
+            //Advance pseudorandomly
+            next_idx += stride;
+            stride = (stride + 5) % 8;
+            next_byte = (next_byte - 0xF8 + 3) % 8 + 0xF8;
+        }
+    }
+    //Resolve sysex byte indices to actual byte slices
+    let mut expected_evs = expected_evs.into_iter().map(|ev| match ev {
+        EventData { event: Ok(ev), .. } => ev,
+        EventData {
+            event: Err((data_start, data_end)),
+            ..
+        } => StreamEvent::Common(SystemCommon::SysEx(u7::from_int_slice(
+            &sysex_bytes[data_start..data_end],
+        ))),
+    });
+    //Parse the bytestream, comparing any events that fire to the expected events list
+    let mut stream = MidiStream::new();
+    let mut handle_ev = |ev: StreamEvent| {
+        let expected = expected_evs.next().expect("stream produced excess events");
+        assert_eq!(ev, expected);
+    };
+    let mut chunk_size = 1;
+    let mut byte_stream = &byte_stream[..];
+    while !byte_stream.is_empty() {
+        //Take a pseudo-randomly sized chunk and feed it to the stream parser
+        use crate::primitive::SplitChecked;
+        chunk_size = chunk_size % 5 + 1;
+        let chunk = match byte_stream.split_checked(chunk_size) {
+            Some(chunk) => chunk,
+            None => {
+                let chunk = byte_stream;
+                byte_stream = &[];
+                chunk
+            }
+        };
+        stream.feed(chunk, &mut handle_ev);
+    }
+    //Flush any pending event
+    stream.flush(handle_ev);
+    //Make sure all expected events were fired
+    assert_eq!(
+        expected_evs.next(),
+        None,
+        "stream produced too little events"
+    );
+}
+
+macro_rules! def_tests {
+    ($(
+        $(#[$attr:meta])*
+        fn $testname:ident() { $filename:expr }
+    )*) => {$(
+        mod $testname {
+            use super::*;
+
+            $(#[$attr])*
+            fn parse_lazy() {
+                test!($filename => parse_lazy);
+            }
+            $(#[$attr])*
+            fn parse() {
+                test!($filename => parse_collect);
+            }
+            $(#[$attr])*
+            fn parse_bytemap() {
+                test!($filename => parse_bytemap);
+            }
+            $(#[$attr])*
+            fn event_api() {
+                test_event_api($filename);
+            }
+            $(#[$attr])*
+            fn stream_api() {
+                test_stream_api($filename);
+            }
+            $(#[$attr])*
+            fn rewrite() {
+                test_rewrite($filename);
+            }
+        }
+    )*}
+}
+
 /// Test the MIDI parser on several files.
 mod parse {
     use super::*;
 
-    #[test]
-    fn clementi_lazy() {
-        test!(("parse_clementi_lazy","Clementi.mid") => parse_lazy);
-    }
+    def_tests! {
+        #[test]
+        fn clementi() {"Clementi.mid"}
 
-    #[test]
-    fn clementi_bytemap() {
-        test!(("parse_clementi_bytemap", "Clementi.mid") => parse_bytemap);
-    }
+        #[test]
+        fn sandstorm() {"Sandstorm.mid"}
 
-    #[test]
-    fn clementi() {
-        test!(("parse_clementi","Clementi.mid") => parse_collect);
-    }
+        #[test]
+        #[cfg_attr(feature = "strict", should_panic)]
+        fn pidamaged() {"PiDamaged.mid"}
 
-    #[test]
-    fn sandstorm() {
-        test!(("parse_sandstorm","Sandstorm.mid") => parse_collect);
-    }
+        #[test]
+        fn levels() {"Levels.mid"}
 
-    #[test]
-    fn sandstorm_bytemap() {
-        test!(("parse_sandstorm_bytemap", "Sandstorm.mid") => parse_bytemap);
-    }
+        #[test]
+        fn beethoven() {"Beethoven.rmi"}
 
-    #[test]
-    #[cfg_attr(feature = "strict", should_panic)]
-    fn pidamaged() {
-        test!(("parse_pidamaged","PiDamaged.mid") => parse_collect);
-    }
-
-    #[test]
-    #[cfg_attr(feature = "strict", should_panic)]
-    fn pidamaged_bytemap() {
-        test!(("parse_pidamaged_bytemap", "PiDamaged.mid") => parse_bytemap);
-    }
-
-    #[test]
-    fn levels() {
-        test!(("parse_levels","Levels.mid") => parse_collect);
-    }
-
-    #[test]
-    fn beethoven() {
-        test!(("parse_beethoven","Beethoven.rmi") => parse_collect);
-    }
-
-    #[test]
-    fn sysex() {
-        test!(("parse_sysex","SysExTest.mid") => parse_collect);
+        #[test]
+        fn sysex() {"SysExTest.mid"}
     }
 
     #[test]
@@ -242,72 +441,5 @@ mod parse {
                 }
             },
         }
-    }
-
-    #[test]
-    fn beethoven_raw() {
-        open! {file: "Beethoven.rmi"};
-        open! {smf: [parse_bytemap] file};
-        for (bytes, ev) in smf.tracks.iter().flat_map(|track| track.iter()) {
-            use crate::{EventKind, StreamEvent};
-            match ev.kind {
-                EventKind::Midi { channel, message } => {
-                    let stream_ev = StreamEvent::parse(bytes).unwrap();
-                    assert_eq!(stream_ev, StreamEvent::Midi { channel, message });
-                }
-                _ => {}
-            }
-        }
-    }
-
-    #[test]
-    fn sysex_raw() {
-        open! {file: "SysExTest.mid"};
-        open! {smf: [parse_bytemap] file};
-        for (bytes, ev) in smf.tracks.iter().flat_map(|track| track.iter()) {
-            use crate::{num::u7, EventKind, StreamEvent, SystemCommon};
-            match ev.kind {
-                EventKind::Midi { channel, message } => {
-                    let stream_ev = StreamEvent::parse(bytes).unwrap();
-                    assert_eq!(stream_ev, StreamEvent::Midi { channel, message });
-                }
-                EventKind::SysEx(sysex_bytes) => {
-                    let mut raw_bytes = vec![0xF0];
-                    raw_bytes.extend_from_slice(sysex_bytes);
-                    let stream_ev = StreamEvent::parse(&raw_bytes).unwrap();
-                    assert_eq!(
-                        stream_ev,
-                        StreamEvent::Common(SystemCommon::SysEx(u7::from_int_slice(sysex_bytes)))
-                    );
-                }
-                _ => {}
-            }
-        }
-    }
-}
-
-/// Test the MIDI writer and parser.
-mod write {
-    use super::*;
-
-    #[test]
-    fn clementi_rewrite() {
-        test_rewrite!("clementi_rewrite", "Clementi.mid");
-    }
-
-    #[test]
-    fn sandstorm_rewrite() {
-        test_rewrite!("sandstorm_rewrite", "Sandstorm.mid");
-    }
-
-    #[test]
-    #[cfg_attr(feature = "strict", should_panic)]
-    fn pidamaged_rewrite() {
-        test_rewrite!("pidamaged_rewrite", "PiDamaged.mid");
-    }
-
-    #[test]
-    fn levels_rewrite() {
-        test_rewrite!("levels_rewrite", "Levels.mid");
     }
 }

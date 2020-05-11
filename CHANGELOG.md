@@ -84,7 +84,7 @@
 
 # Planned changes
 
-- Expose a raw MIDI event parsing API.
+- Unify names for MIDI/channel messages.
 - Check thoroughly which parts of the API are exposed.
 - Write docs.
 - Expose a `std::io::Write`-based write API.

@@ -295,7 +295,7 @@ impl MidiMessage {
         (channel, msg)
     }
     /// Get the raw status nibble for this MIDI message type.
-    fn status_nibble(&self) -> u8 {
+    pub(crate) fn status_nibble(&self) -> u8 {
         match self {
             MidiMessage::NoteOff { .. } => 0x8,
             MidiMessage::NoteOn { .. } => 0x9,
@@ -330,25 +330,15 @@ impl MidiMessage {
 ///
 /// `MidiStream` allows for stream-based parsing,
 pub struct MidiStream {
-    running_status: Option<u8>,
     status: Option<u8>,
     data: Vec<u7>,
 }
 impl MidiStream {
     pub fn new() -> MidiStream {
         MidiStream {
-            running_status: None,
             status: None,
             data: Vec::new(),
         }
-    }
-
-    pub fn running_status(&self) -> Option<u8> {
-        self.running_status
-    }
-
-    pub fn running_status_mut(&mut self) -> &mut Option<u8> {
-        &mut self.running_status
     }
 
     fn event(&mut self, status: u8, handle_ev: &mut dyn FnMut(StreamEvent)) {
@@ -357,38 +347,29 @@ impl MidiStream {
         }
     }
 
-    /// Some status bytes have an associated, known data length.
-    /// Therefore, these events can be fired as soon as the data arrives.
-    /// This is not only for eager event firing, it is necessary for correctly handling running
-    /// status.
-    fn byte_pushed(&mut self, status: u8, handle_ev: &mut dyn FnMut(StreamEvent)) {
-        let len = MidiMessage::msg_length(status);
-        if len > 0 && self.data.len() >= len {
-            self.event(status, handle_ev);
-            self.status = None;
-            self.data.clear();
-        }
-    }
-
     fn feed_byte(&mut self, byte: u8, handle_ev: &mut dyn FnMut(StreamEvent)) {
         if let Some(byte) = u7::try_from(byte) {
             //Data byte
             if let Some(status) = self.status {
-                self.data.push(byte);
-                self.byte_pushed(status, handle_ev);
-            } else {
-                if let Some(status) = self.running_status {
-                    self.status = Some(status);
-                    self.data.push(byte);
-                    self.byte_pushed(status, handle_ev);
+                //Midi messages have a known length, so when a data byte beyond the fixed message
+                //length arrives, we must know to finish off the previous message and start a new
+                //one sharing the status of the previous byte (running status).
+                let len = MidiMessage::msg_length(status);
+                if len > 0 && self.data.len() >= len {
+                    self.event(status, handle_ev);
+                    self.data.clear();
                 }
+                self.data.push(byte);
             }
         } else {
             //Status byte
             if let 0xF8..=0xFF = byte {
                 //System Realtime
-                //These events don't affect anything, they don't change status or add to the data
-                //buffer at all
+                //These single-byte events are intended to transmit quick time-sensitive events,
+                //and they should be invisible to other messages (that means, they don't alter any
+                //decoder state).
+                //They can appear in between the status and data bytes of other messages, and even
+                //in between the data bytes of other messages.
                 handle_ev(StreamEvent::Realtime(SystemRealtime::read(byte)));
             } else {
                 //Channel/System Common
@@ -396,11 +377,6 @@ impl MidiStream {
                 if let Some(status) = self.status {
                     self.event(status, handle_ev);
                 }
-                //Set running status
-                self.running_status = match byte {
-                    0x00..=0xEF => Some(byte),
-                    0xF0..=0xFF => None,
-                };
                 //Set the new status
                 self.status = Some(byte);
                 self.data.clear();
@@ -409,8 +385,8 @@ impl MidiStream {
     }
 
     fn feed_impl(&mut self, bytes: &[u8], handle_ev: &mut dyn FnMut(StreamEvent)) {
-        for byte in bytes {
-            self.feed_byte(*byte, handle_ev);
+        for &byte in bytes {
+            self.feed_byte(byte, handle_ev);
         }
     }
 
@@ -503,7 +479,7 @@ pub enum SystemRealtime {
     Undefined(u8),
 }
 impl SystemRealtime {
-    fn read(status: u8) -> SystemRealtime {
+    pub(crate) fn read(status: u8) -> SystemRealtime {
         use SystemRealtime::*;
         match status {
             0xF8 => TimingClock,
