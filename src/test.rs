@@ -225,6 +225,11 @@ mod parse {
     }
 
     #[test]
+    fn sysex() {
+        test!(("parse_sysex","SysExTest.mid") => parse_collect);
+    }
+
+    #[test]
     fn not_midi() {
         open! {file: "colorlist.txt"};
         let result = parse_collect::Smf::parse(&file);
@@ -236,6 +241,47 @@ mod parse {
                     panic!("invalid midi file produced a malformed (not invalid) errorkind")
                 }
             },
+        }
+    }
+
+    #[test]
+    fn beethoven_raw() {
+        open! {file: "Beethoven.rmi"};
+        open! {smf: [parse_bytemap] file};
+        for (bytes, ev) in smf.tracks.iter().flat_map(|track| track.iter()) {
+            use crate::{EventKind, StreamEvent};
+            match ev.kind {
+                EventKind::Midi { channel, message } => {
+                    let stream_ev = StreamEvent::parse(bytes).unwrap();
+                    assert_eq!(stream_ev, StreamEvent::Midi { channel, message });
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn sysex_raw() {
+        open! {file: "SysExTest.mid"};
+        open! {smf: [parse_bytemap] file};
+        for (bytes, ev) in smf.tracks.iter().flat_map(|track| track.iter()) {
+            use crate::{num::u7, EventKind, StreamEvent, SystemCommon};
+            match ev.kind {
+                EventKind::Midi { channel, message } => {
+                    let stream_ev = StreamEvent::parse(bytes).unwrap();
+                    assert_eq!(stream_ev, StreamEvent::Midi { channel, message });
+                }
+                EventKind::SysEx(sysex_bytes) => {
+                    let mut raw_bytes = vec![0xF0];
+                    raw_bytes.extend_from_slice(sysex_bytes);
+                    let stream_ev = StreamEvent::parse(&raw_bytes).unwrap();
+                    assert_eq!(
+                        stream_ev,
+                        StreamEvent::Common(SystemCommon::SysEx(u7::from_int_slice(sysex_bytes)))
+                    );
+                }
+                _ => {}
+            }
         }
     }
 }

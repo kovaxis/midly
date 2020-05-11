@@ -93,6 +93,7 @@ macro_rules! restricted_int {
     {$(#[$attr:meta])* $name:ident : $inner:tt => $bits:expr ; $( $feature:tt )* } => {
         $(#[$attr])*
         #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+        #[repr(transparent)]
         #[allow(non_camel_case_types)]
         pub struct $name($inner);
         impl From<$inner> for $name {
@@ -101,11 +102,13 @@ macro_rules! restricted_int {
                 $name (bit_range(raw, 0..$bits))
             }
         }
-        impl Into<$inner> for $name {
-            fn into(self) -> $inner {self.0}
+        impl From<$name> for $inner {
+            fn from(restricted: $name) -> $inner {restricted.0}
         }
         impl $name {
-            pub fn try_from(raw: $inner) -> Option<Self> {
+            /// Returns `Some` if the raw integer is within range of the restricted integer, and
+            /// `None` otherwise.
+            pub fn try_from(raw: $inner) -> Option<$name> {
                 let trunc = bit_range(raw, 0..$bits);
                 if trunc==raw {
                     Some($name(trunc))
@@ -113,7 +116,47 @@ macro_rules! restricted_int {
                     None
                 }
             }
-            pub fn as_int(self)->$inner {Into::into(self)}
+
+            /// Get the inner integer out of the wrapper.
+            /// The inner integer is guaranteed to be in range of the restricted wrapper.
+            pub fn as_int(self) -> $inner {
+                Into::into(self)
+            }
+
+            /// Cast a slice of raw integers to a slice of restricted integers, only if there are
+            /// no out-of-range integers.
+            pub fn try_from_int_slice(raw: &[$inner]) -> Option<&[$name]> {
+                for &int in raw {
+                    if Self::try_from(int).is_none() {
+                        return None;
+                    }
+                }
+                unsafe { Some(mem::transmute(raw)) }
+            }
+
+            /// Cast a slice of raw integers to a slice of restricted integers.
+            /// The slice is truncated to the first out-of-range byte, if any exist.
+            pub fn from_int_slice(raw: &[$inner]) -> &[$name] {
+                let first_oob = raw
+                    .iter()
+                    .position(|&b| Self::try_from(b).is_none())
+                    .unwrap_or(raw.len());
+                unsafe { mem::transmute(&raw[..first_oob]) }
+            }
+
+            /// Cast a slice of restricted integers to the corresponding raw integers.
+            ///
+            /// All integers are guaranteed to be within range of the restricted int.
+            pub fn as_int_slice(slice: &[$name]) -> &[$inner] {
+                unsafe { mem::transmute(slice) }
+            }
+
+            #[allow(dead_code)]
+            pub(crate) fn check_int(raw: $inner) -> StdResult<Self, &'static ErrorKind> {
+                Self::try_from(raw).ok_or_else(
+                    || err_invalid!("invalid integer with top bits set")
+                )
+            }
         }
         $( int_feature!{$name ; $inner : $feature} )*
     };
@@ -192,7 +235,7 @@ impl u28 {
                     //Leading byte
                     byte | 0x80
                 };
-                out.write_all(&[byte])?;
+                out.write(&[byte])?;
             }
         }
         Ok(())
@@ -223,7 +266,7 @@ pub(crate) fn write_varlen_slice<W: Write>(slice: &[u8], out: &mut W) -> IoResul
         .and_then(|len| u28::try_from(len))
         .ok_or_else(|| W::invalid_input("varlen slice exceeds 28 bits"))?;
     len.write_varlen(out)?;
-    out.write_all(slice)?;
+    out.write(slice)?;
     Ok(())
 }
 

@@ -5,7 +5,7 @@ pub type IoResult<W> = StdResult<(), <W as Write>::Error>;
 pub trait Write: Send {
     type Error: Send;
     type Seekable: Write<Error = Self::Error, Seekable = Self::Seekable> + Seek;
-    fn write_all(&mut self, buf: &[u8]) -> IoResult<Self>;
+    fn write(&mut self, buf: &[u8]) -> IoResult<Self>;
     fn invalid_input(msg: &'static str) -> Self::Error;
     fn make_seekable(&mut self) -> Option<&mut Self::Seekable> {
         None
@@ -40,7 +40,7 @@ impl<W> NotSeekable<W> {
 impl<W: Write> Write for NotSeekable<W> {
     type Error = W::Error;
     type Seekable = Self;
-    fn write_all(&mut self, _: &[u8]) -> IoResult<Self> {
+    fn write(&mut self, _: &[u8]) -> IoResult<Self> {
         self.never()
     }
     fn invalid_input(msg: &'static str) -> W::Error {
@@ -61,7 +61,7 @@ impl<W: Write> Seek for NotSeekable<W> {
 impl Write for Vec<u8> {
     type Error = &'static str;
     type Seekable = Self;
-    fn write_all(&mut self, buf: &[u8]) -> IoResult<Self> {
+    fn write(&mut self, buf: &[u8]) -> IoResult<Self> {
         self.extend_from_slice(buf);
         Ok(())
     }
@@ -117,7 +117,7 @@ impl<'a> Cursor<'a> {
 impl<'a> Write for Cursor<'a> {
     type Error = CursorError;
     type Seekable = Self;
-    fn write_all(&mut self, buf: &[u8]) -> IoResult<Self> {
+    fn write(&mut self, buf: &[u8]) -> IoResult<Self> {
         //Cannot overflow because `cur <= buf.len()` is always true.
         //Therefore, in order for this to overflow more than the whole address space must be
         //contained within these two slices.
@@ -161,7 +161,7 @@ pub enum CursorError {
 impl<'a> Write for &'a mut [u8] {
     type Error = CursorError;
     type Seekable = NotSeekable<Self>;
-    fn write_all(&mut self, buf: &[u8]) -> IoResult<Self> {
+    fn write(&mut self, buf: &[u8]) -> IoResult<Self> {
         if buf.len() > self.len() {
             self.copy_from_slice(&buf[..self.len()]);
             *self = &mut [];
@@ -183,7 +183,7 @@ pub struct SeekWrap<T>(pub T);
 impl<T: io::Write + io::Seek + Send> Write for SeekWrap<T> {
     type Error = io::Error;
     type Seekable = Self;
-    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<()> {
         io::Write::write_all(&mut self.0, buf)
     }
     fn invalid_input(msg: &'static str) -> io::Error {
@@ -200,7 +200,7 @@ impl<T: io::Write + io::Seek + Send> Seek for SeekWrap<T> {
     }
     fn write_at(&mut self, buf: &[u8], pos: u64) -> io::Result<()> {
         io::Seek::seek(&mut self.0, io::SeekFrom::Start(pos))?;
-        self.write_all(buf)?;
+        self.write(buf)?;
         io::Seek::seek(&mut self.0, io::SeekFrom::End(0))?;
         Ok(())
     }
@@ -211,7 +211,7 @@ pub struct NonseekWrap<T>(pub T);
 impl<T: io::Write + Send> Write for NonseekWrap<T> {
     type Error = io::Error;
     type Seekable = NotSeekable<Self>;
-    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<()> {
         io::Write::write_all(&mut self.0, buf)
     }
     fn invalid_input(msg: &'static str) -> io::Error {
@@ -223,7 +223,7 @@ pub(crate) struct WriteCounter(pub u64);
 impl Write for WriteCounter {
     type Error = &'static str;
     type Seekable = NotSeekable<Self>;
-    fn write_all(&mut self, buf: &[u8]) -> IoResult<Self> {
+    fn write(&mut self, buf: &[u8]) -> IoResult<Self> {
         self.0 += buf.len() as u64;
         Ok(())
     }

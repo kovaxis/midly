@@ -129,7 +129,6 @@
 //! [`EventKind::parse`](enum.EventKind.html#method.parse) method, however most System Common
 //! and System Realtime messages are unsupported.
 
-#![forbid(unsafe_code)]
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 
 #[cfg(feature = "alloc")]
@@ -187,7 +186,10 @@ mod smf;
 pub use crate::smf::{Smf, SmfBytemap};
 pub use crate::{
     error::{Error, ErrorKind, Result},
-    event::{Event, EventKind, MetaMessage, MidiMessage},
+    event::{
+        Event, EventKind, MetaMessage, MidiMessage, MidiStream, MtcQuarterFrameMessage,
+        StreamEvent, SystemCommon, SystemRealtime,
+    },
     primitive::{Format, Fps, SmpteTime, Timing},
     smf::{parse, write, EventIter, Header, TrackIter},
 };

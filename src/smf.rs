@@ -190,7 +190,7 @@ where
             //Write down the tracks sequentially and in order
             for result in track_chunks {
                 let track_chunk = result?;
-                out.write_all(&track_chunk)?;
+                out.write(&track_chunk)?;
             }
             return Ok(());
         }
@@ -202,7 +202,7 @@ where
         let mut buf = Vec::new();
         for track in tracks {
             Chunk::write_to_vec(track, &mut buf).map_err(|msg| W::invalid_input(msg))?;
-            out.write_all(&buf)?;
+            out.write(&buf)?;
         }
         return Ok(());
     }
@@ -313,7 +313,7 @@ impl<'a> Chunk<'a> {
         header_chunk[0..4].copy_from_slice(&b"MThd"[..]);
         header_chunk[4..8].copy_from_slice(&(header.len() as u32).to_be_bytes()[..]);
         header_chunk[8..].copy_from_slice(&header[..]);
-        out.write_all(&header_chunk[..])?;
+        out.write(&header_chunk[..])?;
         Ok(())
     }
 
@@ -330,7 +330,7 @@ impl<'a> Chunk<'a> {
         let len = Self::check_len::<W, _>(counter.0)?;
         let mut head = [b'M', b'T', b'r', b'k', 0, 0, 0, 0];
         head[4..8].copy_from_slice(&len);
-        out.write_all(&head)?;
+        out.write(&head)?;
         Self::write_raw(track, out)?;
         Ok(())
     }
@@ -343,7 +343,7 @@ impl<'a> Chunk<'a> {
         track: impl Iterator<Item = &'a Event<'a>>,
         out: &mut W,
     ) -> IoResult<W> {
-        out.write_all(b"MTrk\0\0\0\0")?;
+        out.write(b"MTrk\0\0\0\0")?;
         let start = out.tell()?;
         Self::write_raw(track, out)?;
         let len = Self::check_len::<W, _>(out.tell()? - start)?;
