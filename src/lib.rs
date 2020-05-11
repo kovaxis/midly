@@ -181,15 +181,13 @@ pub mod io;
 mod primitive;
 mod riff;
 mod smf;
+pub mod stream;
 
 #[cfg(feature = "alloc")]
 pub use crate::smf::{Smf, SmfBytemap};
 pub use crate::{
     error::{Error, ErrorKind, Result},
-    event::{
-        Event, EventKind, MetaMessage, MidiMessage, MidiStream, MtcQuarterFrameMessage,
-        StreamEvent, SystemCommon, SystemRealtime,
-    },
+    event::{Event, EventKind, MetaMessage, MidiMessage},
     primitive::{Format, Fps, SmpteTime, Timing},
     smf::{parse, write, EventIter, Header, TrackIter},
 };

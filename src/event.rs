@@ -3,6 +3,7 @@
 use crate::{
     prelude::*,
     primitive::{read_varlen_slice, write_varlen_slice, SmpteTime},
+    stream::{LiveEvent, SystemCommon},
 };
 
 /// Represents a parsed SMF track event.
@@ -133,7 +134,7 @@ impl<'a> EventKind<'a> {
     /// to `None`.
     ///
     /// If you wish to disable running status, pass in `&mut None` to all calls to this method.
-    pub fn write<W: Write>(&self, running_status: &mut Option<u8>, out: &mut W) -> IoResult<W> {
+    fn write<W: Write>(&self, running_status: &mut Option<u8>, out: &mut W) -> IoResult<W> {
         //Running Status rules:
         // - MIDI Messages (0x80 ..= 0xEF) alter and use running status
         // - System Common (0xF0 ..= 0xF7) cancel and cannot use running status
@@ -165,6 +166,23 @@ impl<'a> EventKind<'a> {
             }
         }
         Ok(())
+    }
+
+    pub fn to_live(self) -> Option<LiveEvent<'a>> {
+        match self {
+            EventKind::Midi { channel, message } => Some(LiveEvent::Midi { channel, message }),
+            EventKind::SysEx(data) => {
+                if data.last() == Some(&0xF7) {
+                    let data_u7 = u7::from_int_slice(data);
+                    if data_u7.len() == data.len() - 1 {
+                        return Some(LiveEvent::Common(SystemCommon::SysEx(data_u7)));
+                    }
+                }
+                None
+            }
+            EventKind::Escape(_data) => None,
+            EventKind::Meta(_meta) => None,
+        }
     }
 }
 
@@ -229,12 +247,12 @@ impl MidiMessage {
     /// Midi messages have a known length.
     const LENGTH_BY_STATUS: [u8; 16] = [0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 2, 2, 1, 1, 2, 0];
 
-    fn msg_length(status: u8) -> usize {
+    pub(crate) fn msg_length(status: u8) -> usize {
         Self::LENGTH_BY_STATUS[(status >> 4) as usize] as usize
     }
 
     /// Extract the data bytes from a raw slice.
-    fn read_data_u8(status: u8, raw: &mut &[u8]) -> Result<[u7; 2]> {
+    pub(crate) fn read_data_u8(status: u8, raw: &mut &[u8]) -> Result<[u7; 2]> {
         let len = Self::msg_length(status);
         let data = raw
             .split_checked(len)
@@ -247,7 +265,7 @@ impl MidiMessage {
     }
 
     /// Get the data bytes from a databyte slice.
-    fn get_data_u7(status: u8, data: &[u7]) -> Result<[u7; 2]> {
+    pub(crate) fn get_data_u7(status: u8, data: &[u7]) -> Result<[u7; 2]> {
         let len = Self::msg_length(status);
         ensure!(data.len() >= len, err_invalid!("truncated midi message"));
         Ok(match len {
@@ -260,7 +278,7 @@ impl MidiMessage {
     /// Receives status byte and midi args separately.
     ///
     /// Panics if the `status` is not a MIDI message status (0x80..=0xEF).
-    fn read(status: u8, data: [u7; 2]) -> (u4, MidiMessage) {
+    pub(crate) fn read(status: u8, data: [u7; 2]) -> (u4, MidiMessage) {
         let channel = u4::from(status);
         let msg = match status >> 4 {
             0x8 => MidiMessage::NoteOff {
@@ -307,7 +325,7 @@ impl MidiMessage {
         }
     }
     /// Write the data part of this message, not including the status.
-    fn write<W: Write>(&self, out: &mut W) -> IoResult<W> {
+    pub(crate) fn write<W: Write>(&self, out: &mut W) -> IoResult<W> {
         match self {
             MidiMessage::NoteOff { key, vel } => out.write(&[key.as_int(), vel.as_int()])?,
             MidiMessage::NoteOn { key, vel } => out.write(&[key.as_int(), vel.as_int()])?,
@@ -322,296 +340,6 @@ impl MidiMessage {
             }
         }
         Ok(())
-    }
-}
-
-/// A streaming raw MIDI parser.
-/// This parser takes raw MIDI, *not* `.midi` files!
-///
-/// `MidiStream` allows for stream-based parsing,
-pub struct MidiStream {
-    status: Option<u8>,
-    data: Vec<u7>,
-}
-impl MidiStream {
-    pub fn new() -> MidiStream {
-        MidiStream {
-            status: None,
-            data: Vec::new(),
-        }
-    }
-
-    fn event(&mut self, status: u8, mut handle_ev: impl FnMut(StreamEvent)) {
-        if let Ok(ev) = StreamEvent::read(status, &self.data[..]) {
-            handle_ev(ev);
-        }
-    }
-
-    fn feed_byte(&mut self, byte: u8, mut handle_ev: impl FnMut(StreamEvent)) {
-        if let Some(byte) = u7::try_from(byte) {
-            //Data byte
-            if let Some(status) = self.status {
-                //Midi messages have a known length, so when a data byte beyond the fixed message
-                //length arrives, we must know to finish off the previous message and start a new
-                //one sharing the status of the previous byte (running status).
-                let len = MidiMessage::msg_length(status);
-                if len > 0 && self.data.len() >= len {
-                    self.event(status, handle_ev);
-                    self.data.clear();
-                }
-                self.data.push(byte);
-            }
-        } else {
-            //Status byte
-            if let 0xF8..=0xFF = byte {
-                //System Realtime
-                //These single-byte events are intended to transmit quick time-sensitive events,
-                //and they should be invisible to other messages (that means, they don't alter any
-                //decoder state).
-                //They can appear in between the status and data bytes of other messages, and even
-                //in between the data bytes of other messages.
-                handle_ev(StreamEvent::Realtime(SystemRealtime::read(byte)));
-            } else {
-                //Channel/System Common
-                //Because the status is about to be cleared, process the previous one
-                if let Some(status) = self.status {
-                    self.event(status, handle_ev);
-                }
-                //Set the new status
-                self.status = Some(byte);
-                self.data.clear();
-            }
-        }
-    }
-
-    pub fn feed(&mut self, bytes: &[u8], mut handle_ev: impl FnMut(StreamEvent)) {
-        for &byte in bytes {
-            self.feed_byte(byte, &mut handle_ev);
-        }
-    }
-
-    pub fn flush(&mut self, handle_ev: impl FnMut(StreamEvent)) {
-        if let Some(status) = self.status.take() {
-            self.event(status, handle_ev);
-            self.status = None;
-            self.data.clear();
-        }
-    }
-}
-
-#[derive(Copy, Clone, PartialEq, Debug)]
-pub enum StreamEvent<'a> {
-    Midi { channel: u4, message: MidiMessage },
-    Common(SystemCommon<'a>),
-    Realtime(SystemRealtime),
-}
-impl<'a> StreamEvent<'a> {
-    /// Parse a complete MIDI message from its raw bytes.
-    pub fn parse(mut raw: &'a [u8]) -> Result<StreamEvent<'a>> {
-        let status = raw
-            .split_checked(1)
-            .ok_or_else(|| err_invalid!("no status byte"))?[0];
-        let data = u7::from_int_slice(raw);
-        Self::read(status, data)
-    }
-
-    fn read(status: u8, data: &[u7]) -> Result<StreamEvent> {
-        match status {
-            0x80..=0xEF => {
-                let data = MidiMessage::get_data_u7(status, data)?;
-                let (channel, message) = MidiMessage::read(status, data);
-                Ok(StreamEvent::Midi { channel, message })
-            }
-            _ => {
-                //System Common event
-                let ev = SystemCommon::read(status, data)?;
-                Ok(StreamEvent::Common(ev))
-            }
-        }
-    }
-
-    /// Write the complete message, including status.
-    pub fn write<W: Write>(&self, out: &mut W) -> IoResult<W> {
-        match self {
-            StreamEvent::Midi { channel, message } => {
-                let status = message.status_nibble() << 4 | channel.as_int();
-                out.write(&[status])?;
-                message.write(out)?;
-            }
-            StreamEvent::Common(common) => {
-                common.write(out)?;
-            }
-            StreamEvent::Realtime(realtime) => {
-                out.write(&[realtime.encode()])?;
-            }
-        }
-        Ok(())
-    }
-}
-
-/// Messages that only occur in live MIDI connections (ie. not SMF), and can occur at ANY time,
-/// even during transmission of other event data bytes.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub enum SystemRealtime {
-    /// If sent, they should be sent 24 times per quarter note.
-    TimingClock,
-    Start,
-    Continue,
-    Stop,
-    /// Once one of these messages is transmitted, a message should arrive every 300ms or else the
-    /// connection is considered broken.
-    ActiveSensing,
-    Reset,
-    Undefined(u8),
-}
-impl SystemRealtime {
-    pub(crate) fn read(status: u8) -> SystemRealtime {
-        use SystemRealtime::*;
-        match status {
-            0xF8 => TimingClock,
-            0xFA => Start,
-            0xFB => Continue,
-            0xFC => Stop,
-            0xFE => ActiveSensing,
-            0xFF => Reset,
-            _ => {
-                //Unknown system realtime event
-                Undefined(status)
-            }
-        }
-    }
-
-    fn encode(self) -> u8 {
-        use SystemRealtime::*;
-        match self {
-            TimingClock => 0xF8,
-            Start => 0xFA,
-            Continue => 0xFB,
-            Stop => 0xFC,
-            ActiveSensing => 0xFE,
-            Reset => 0xFF,
-            Undefined(byte) => byte,
-        }
-    }
-}
-
-/// A "system common event", as defined by the MIDI spec.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub enum SystemCommon<'a> {
-    /// A system-exclusive event. The data does not include the leading `F0` or the closing `F7`,
-    /// only data bytes are allowed.
-    SysEx(&'a [u7]),
-    MidiTimeCodeQuarterFrame(MtcQuarterFrameMessage, u4),
-    /// The number of MIDI beats (6 x MIDI clocks) that have elapsed since the start of the
-    /// sequence.
-    SongPosition(u14),
-    SongSelect(u7),
-    TuneRequest,
-    /// An undefined System Common message, with arbitrary data bytes.
-    Undefined(u8, &'a [u7]),
-}
-impl<'a> SystemCommon<'a> {
-    fn read(status: u8, data: &'a [u7]) -> Result<SystemCommon<'a>> {
-        let ev = match status {
-            0xF0 => {
-                //SysEx
-                SystemCommon::SysEx(&data[..])
-            }
-            0xF1 if data.len() >= 1 => {
-                //MTC Quarter Frame
-                SystemCommon::MidiTimeCodeQuarterFrame(
-                    MtcQuarterFrameMessage::from_code(data[0].as_int() >> 4).unwrap(),
-                    u4::from(data[0].as_int()),
-                )
-            }
-            0xF2 if data.len() >= 2 => {
-                //Song Position
-                SystemCommon::SongPosition(u14::from(
-                    (data[0].as_int() as u16) | ((data[1].as_int() as u16) << 7),
-                ))
-            }
-            0xF3 if data.len() >= 1 => {
-                //Song Select
-                SystemCommon::SongSelect(u7::from(data[0]))
-            }
-            0xF6 => {
-                //Tune Request
-                SystemCommon::TuneRequest
-            }
-            0xF1..=0xF5 => {
-                //Unknown system common event
-                SystemCommon::Undefined(status, &data[..])
-            }
-            _ => {
-                //Invalid/Unknown/Unreachable event
-                //(Including F7 SysEx End Marker)
-                bail!(err_invalid!("invalid status byte"))
-            }
-        };
-        Ok(ev)
-    }
-
-    fn write<W: Write>(&self, out: &mut W) -> IoResult<W> {
-        match self {
-            SystemCommon::SysEx(data) => {
-                out.write(&[0xF0])?;
-                out.write(u7::as_int_slice(data))?;
-                out.write(&[0xF7])
-            }
-            SystemCommon::MidiTimeCodeQuarterFrame(msgtype, data) => {
-                out.write(&[0xF1, msgtype.as_code() << 4 | data.as_int()])
-            }
-            SystemCommon::SongPosition(pos) => {
-                out.write(&[0xF2, pos.as_int() as u8 & 0x7F, (pos.as_int() >> 7) as u8])
-            }
-            SystemCommon::SongSelect(song) => out.write(&[0xF3, song.as_int()]),
-            SystemCommon::TuneRequest => out.write(&[0xF6]),
-            SystemCommon::Undefined(status, data) => {
-                out.write(&[*status])?;
-                out.write(u7::as_int_slice(data))
-            }
-        }
-    }
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub enum MtcQuarterFrameMessage {
-    FramesLow,
-    FramesHigh,
-    SecondsLow,
-    SecondsHigh,
-    MinutesLow,
-    MinutesHigh,
-    HoursLow,
-    HoursHigh,
-}
-impl MtcQuarterFrameMessage {
-    fn as_code(self) -> u8 {
-        use MtcQuarterFrameMessage::*;
-        match self {
-            FramesLow => 0,
-            FramesHigh => 1,
-            SecondsLow => 2,
-            SecondsHigh => 3,
-            MinutesLow => 4,
-            MinutesHigh => 5,
-            HoursLow => 6,
-            HoursHigh => 7,
-        }
-    }
-    fn from_code(code: u8) -> Option<Self> {
-        use MtcQuarterFrameMessage::*;
-        Some(match code {
-            0 => FramesLow,
-            1 => FramesHigh,
-            2 => SecondsLow,
-            3 => SecondsHigh,
-            4 => MinutesLow,
-            5 => MinutesHigh,
-            6 => HoursLow,
-            7 => HoursHigh,
-            _ => return None,
-        })
     }
 }
 

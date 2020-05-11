@@ -175,18 +175,22 @@ fn test_event_api(file: &str) {
     open! {file: file};
     open! {smf: [parse_bytemap] file};
     for (bytes, ev) in smf.tracks.iter().flat_map(|track| track.iter()) {
-        use crate::{num::u7, EventKind, StreamEvent, SystemCommon};
+        use crate::{
+            num::u7,
+            stream::{LiveEvent, SystemCommon},
+            EventKind,
+        };
         match ev.kind {
             EventKind::Midi { channel, message } => {
                 let mut raw_bytes;
                 let stream_ev = if bytes.first().map(|&b| b < 0x80).unwrap_or(true) {
                     raw_bytes = vec![message.status_nibble() << 4 | channel.as_int()];
                     raw_bytes.extend_from_slice(bytes);
-                    StreamEvent::parse(&raw_bytes[..]).unwrap()
+                    LiveEvent::parse(&raw_bytes[..]).unwrap()
                 } else {
-                    StreamEvent::parse(bytes).unwrap()
+                    LiveEvent::parse(bytes).unwrap()
                 };
-                assert_eq!(stream_ev, StreamEvent::Midi { channel, message });
+                assert_eq!(stream_ev, LiveEvent::Midi { channel, message });
             }
             EventKind::SysEx(sysex_bytes) => {
                 assert!(
@@ -201,10 +205,10 @@ fn test_event_api(file: &str) {
                 );
                 let mut raw_bytes = vec![0xF0];
                 raw_bytes.extend_from_slice(sysex_bytes);
-                let stream_ev = StreamEvent::parse(&raw_bytes).unwrap();
+                let stream_ev = LiveEvent::parse(&raw_bytes).unwrap();
                 assert_eq!(
                     stream_ev,
-                    StreamEvent::Common(SystemCommon::SysEx(u7::from_int_slice(sysex_bytes)))
+                    LiveEvent::Common(SystemCommon::SysEx(u7::from_int_slice(sysex_bytes)))
                 );
             }
             EventKind::Escape(_) => {
@@ -216,12 +220,16 @@ fn test_event_api(file: &str) {
 }
 
 fn test_stream_api(file: &str) {
-    use crate::{num::u7, EventKind, MidiStream, StreamEvent, SystemCommon, SystemRealtime};
+    use crate::{
+        num::u7,
+        stream::{LiveEvent, MidiStream, SystemCommon, SystemRealtime},
+        EventKind,
+    };
 
     #[derive(Debug)]
     struct EventData<'a> {
         fired_at: usize,
-        event: Result<StreamEvent<'a>, (usize, usize)>,
+        event: Result<LiveEvent<'a>, (usize, usize)>,
     }
 
     open! {file: file};
@@ -244,7 +252,7 @@ fn test_stream_api(file: &str) {
                 //Add an expected event
                 expected_evs.push(EventData {
                     fired_at: byte_stream.len(),
-                    event: Ok(StreamEvent::Midi { channel, message }),
+                    event: Ok(LiveEvent::Midi { channel, message }),
                 });
             }
             EventKind::SysEx(data) => {
@@ -313,7 +321,7 @@ fn test_stream_api(file: &str) {
                 event_idx,
                 EventData {
                     fired_at: byte_stream.len() - 1,
-                    event: Ok(StreamEvent::Realtime(SystemRealtime::read(next_byte))),
+                    event: Ok(LiveEvent::Realtime(SystemRealtime::new(next_byte))),
                 },
             );
             event_idx += 1;
@@ -329,13 +337,13 @@ fn test_stream_api(file: &str) {
         EventData {
             event: Err((data_start, data_end)),
             ..
-        } => StreamEvent::Common(SystemCommon::SysEx(u7::from_int_slice(
+        } => LiveEvent::Common(SystemCommon::SysEx(u7::from_int_slice(
             &sysex_bytes[data_start..data_end],
         ))),
     });
     //Parse the bytestream, comparing any events that fire to the expected events list
     let mut stream = MidiStream::new();
-    let mut handle_ev = |ev: StreamEvent| {
+    let mut handle_ev = |ev: LiveEvent| {
         let expected = expected_evs.next().expect("stream produced excess events");
         assert_eq!(ev, expected);
     };
