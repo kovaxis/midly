@@ -39,18 +39,30 @@ const BYTES_PER_EVENT: f32 = 3.4;
 #[cfg(feature = "parallel")]
 const PARALLEL_ENABLE_THRESHOLD: usize = 3 * 1024;
 
+/// Represents a single `.mid` Standard Midi File.
+/// If you're casually looking to parse a `.mid` file, this is the type you're looking for.
+///
+/// This type is only available with the `alloc` feature enabled.
+/// If you're looking for a fully `no_std` alternative, see the [`parse`](fn.parse.html) function.
 #[cfg(feature = "alloc")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Smf<'a> {
+    /// The header of this MIDI file, indicating tempo information and track format.
     pub header: Header,
+    /// A list of tracks within this MIDI file.
+    ///
+    /// Each track consists simply of a list of events (ie. there is no track metadata).
     pub tracks: Vec<Vec<Event<'a>>>,
 }
 #[cfg(feature = "alloc")]
 impl Smf<'_> {
+    /// Create a new `Smf` from its raw parts.
     pub fn new(header: Header, tracks: Vec<Vec<Event>>) -> Smf {
         Smf { header, tracks }
     }
 
+    /// Parse a `.mid` Standard Midi File from its raw bytes.
+    /// If you casually want to parse `.mid` files, this is the function you're looking for.
     pub fn parse(raw: &[u8]) -> Result<Smf> {
         let (header, tracks) = parse(raw)?;
         let track_count_hint = tracks.track_count_hint;
@@ -59,31 +71,60 @@ impl Smf<'_> {
         Ok(Smf { header, tracks })
     }
 
+    /// Encodes and writes the file to the given generic writer.
+    ///
+    /// Note that this function requires a `midly::io::Write` writer, not a `std::io::Write` writer.
+    /// This makes it possible to support `no_std` environments, as well as custom writer errors.
+    /// If you're looking to write to a `File`, see the [`save`](#method.save) method.
+    /// If you're looking to write to a `std::io::Write` writer, see the
+    /// [`write_std`](#method.write_std) method.
+    ///
+    /// This function is always available, even in `no_std` environments.
     pub fn write<W: Write>(&self, out: &mut W) -> IoResult<W> {
         write(&self.header, &self.tracks, out)
     }
 
+    /// Encodes and writes the file to the given `std::io::Write` writer.
+    ///
+    /// This function is similar to the [`write`](#method.write) method, but writes to a
+    /// `std::io::Write` writer instead of a `midly::io::Write` writer.
+    ///
+    /// This function is only available with the `std` feature enabled.
+    #[cfg(feature = "std")]
+    pub fn write_std<W: io::Write>(&self, out: W) -> io::Result<()> {
+        write_std(&self.header, &self.tracks, out)
+    }
+
+    /// Encodes and writes the file to the given path.
     #[cfg(feature = "std")]
     pub fn save<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
         fn save_impl(smf: &Smf, path: &Path) -> io::Result<()> {
-            smf.write(&mut crate::io::SeekWrap(File::create(path)?))
+            smf.write(&mut crate::io::IoWrap(File::create(path)?))
         }
         save_impl(self, path.as_ref())
     }
 }
 
+/// A `.mid` Standard Midi File, but keeps a mapping to the raw bytes that make up each event.
+///
+/// This type is only available with the `alloc` feature enabled.
 #[cfg(feature = "alloc")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SmfBytemap<'a> {
+    /// The header of this file.
     pub header: Header,
+    /// A list of tracks, along with the bytemap of their events.
     pub tracks: Vec<Vec<(&'a [u8], Event<'a>)>>,
 }
 #[cfg(feature = "alloc")]
 impl<'a> SmfBytemap<'a> {
+    /// Create an `SmfBytemap` from its raw parts.
     pub fn new(header: Header, tracks: Vec<Vec<(&'a [u8], Event<'a>)>>) -> SmfBytemap<'a> {
         SmfBytemap { header, tracks }
     }
 
+    /// Parse a Standard Midi File from its raw bytes, keeping a map to the original bytes that
+    /// make up each event.
     pub fn parse(raw: &[u8]) -> Result<SmfBytemap> {
         let (header, tracks) = parse(raw)?;
         let track_count_hint = tracks.track_count_hint;
@@ -92,6 +133,7 @@ impl<'a> SmfBytemap<'a> {
         Ok(SmfBytemap { header, tracks })
     }
 
+    /// Encodes and writes the *events* (not the bytemap) to the given generic writer.
     pub fn write<W: Write>(&self, out: &mut W) -> IoResult<W> {
         write(
             &self.header,
@@ -102,10 +144,28 @@ impl<'a> SmfBytemap<'a> {
         )
     }
 
+    /// Encodes and writes the *events* (not the bytemap) to the given `std::io::Write` writer.
+    ///
+    /// This function is only available with the `std` feature enabled.
+    #[cfg(feature = "std")]
+    pub fn write_std<W: io::Write>(&self, out: W) -> io::Result<()> {
+        write_std(
+            &self.header,
+            self.tracks
+                .iter()
+                .map(|bytemapped| bytemapped.iter().map(|(_b, ev)| ev)),
+            out,
+        )
+    }
+
+    /// Creates/overwrites the file at the given path and writes the *events* (not the bytemap) to
+    /// it.
+    ///
+    /// This function is only available with the `std` feature enabled.
     #[cfg(feature = "std")]
     pub fn save<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
         fn save_impl(smf: &SmfBytemap, path: &Path) -> io::Result<()> {
-            smf.write(&mut crate::io::SeekWrap(File::create(path)?))
+            smf.write(&mut crate::io::IoWrap(File::create(path)?))
         }
         save_impl(self, path.as_ref())
     }
@@ -126,6 +186,12 @@ fn validate_smf(header: &Header, track_count_hint: u16, track_count: usize) -> R
     Ok(())
 }
 
+/// Parse a raw MIDI file lazily, yielding its header and a lazy track iterator.
+/// No allocations are made.
+///
+/// The track iterator that is returned yield event iterators, which in turn yield concrete events.
+///
+/// This function is always available, even in `no_std` environments.
 pub fn parse(raw: &[u8]) -> Result<(Header, TrackIter)> {
     let raw = match raw.get(..4) {
         Some(b"RIFF") => riff::unwrap(raw)?,
@@ -144,13 +210,29 @@ pub fn parse(raw: &[u8]) -> Result<(Header, TrackIter)> {
     Ok((header, tracks))
 }
 
-/// Encode and write the MIDI file into the given generic writer.
+/// Encode and write a generic MIDI file into the given generic writer.
+/// The MIDI file is represented by a header and a list of tracks.
 ///
-/// This function will bubble up errors from the underlying writer and produce `InvalidInput`
-/// errors if the MIDI file is extremely large (like for example if there are more than 65535
-/// tracks or chunk sizes are over 4GB).
+/// # Errors
 ///
-/// This function will make use of multiple threads if the `std` feature is enabled.
+/// The MIDI writer raises almost no errors by itself, it only bubbles errors from the underlying
+/// writer.
+/// The only exception to this rule are extreme cases that break the limits of the MIDI spec: if
+/// there are more than 65535 tracks, if the data for a single event is 256MB or larger, or if the
+/// total size of any track is 4GB or larger.
+///
+/// # Implementation notes
+///
+/// Currently this function will attempt to use multiple threads to encode the file if possible and
+/// the file is large enough to make it worth it.
+///
+/// Otherwise, each track will be written to an in-memory buffer before writing to disk.
+///
+/// If allocation is disabled, but the writer is seekable, the file will be written once and it
+/// will be seeked back in order to write down the chunk sizes.
+///
+/// Otherwise, encoding will happen twice: once to determine the size of the chunks and once again
+/// to actually write down the file.
 pub fn write<'a, T, E, W>(header: &Header, tracks: T, out: &mut W) -> IoResult<W>
 where
     T: IntoIterator<Item = E>,
@@ -181,15 +263,14 @@ where
                 .into_par_iter()
                 .map(|track| {
                     let mut track_chunk = Vec::new();
-                    Chunk::write_to_vec(track, &mut track_chunk)
-                        .map_err(|msg| W::invalid_input(msg))?;
+                    Chunk::write_to_vec(track, &mut track_chunk)?;
                     Ok(track_chunk)
                 })
                 .collect_into_vec(&mut track_chunks);
 
             //Write down the tracks sequentially and in order
             for result in track_chunks {
-                let track_chunk = result?;
+                let track_chunk = result.map_err(|msg| W::invalid_input(msg))?;
                 out.write(&track_chunk)?;
             }
             return Ok(());
@@ -224,6 +305,21 @@ where
         }
         Ok(())
     }
+}
+
+/// Similar to [`write`](fn.write.html), but writes to a `std::io::Write` writer instead of a
+/// `midly::io::Write` writer.
+/// This function is only available with the `std` feature enabled.
+#[cfg(feature = "std")]
+pub fn write_std<'a, T, E, W>(header: &Header, tracks: T, out: W) -> io::Result<()>
+where
+    T: IntoIterator<Item = E>,
+    T::IntoIter: ExactSizeIterator + Clone + Send,
+    E: IntoIterator<Item = &'a Event<'a>>,
+    E::IntoIter: Clone + Send,
+    W: io::Write,
+{
+    write(header, tracks, &mut crate::io::IoWrap(out))
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -392,18 +488,25 @@ impl<'a> Chunk<'a> {
     }
 }
 
-/// A MIDI file header.
+/// A MIDI file header, indicating metadata about the file.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct Header {
+    /// Information about how should the tracks be laid out when playing them back.
     pub format: Format,
+    /// Tempo information about the file.
+    ///
+    /// Usually it's not possible to determine the timing of a file with just this field, the first
+    /// few events of the first track must be parsed in the best case, and in the worst case the
+    /// file might have changing tempos along the song.
     pub timing: Timing,
 }
 impl Header {
+    /// Create a new header from its raw parts.
     pub fn new(format: Format, timing: Timing) -> Header {
         Header { format, timing }
     }
 
-    /// Read both the header and the track count.
+    /// Read the contents of a header chunk, including the `Header` and the track count.
     fn read(mut raw: &[u8]) -> Result<(Header, u16)> {
         let format = Format::read(&mut raw)?;
         let track_count = u16::read(&mut raw)?;
@@ -419,21 +522,31 @@ impl Header {
     }
 }
 
-/// An iterator over the tracks in a Standard Midi File.
+/// An iterator over all *tracks* in a Standard Midi File.
+///
+/// This type is always available, even in `no_std` environments.
 pub struct TrackIter<'a> {
     chunks: ChunkIter<'a>,
     track_count_hint: u16,
 }
 impl<'a> TrackIter<'a> {
+    /// Peek at the remaining unparsed bytes in the file.
     pub fn unread(&self) -> &'a [u8] {
         self.chunks.raw
     }
 
+    /// Parse and collect the remaining unparsed tracks into a `Vec` of tracks.
+    ///
+    /// This function is only available with the `alloc` feature enabled.
     #[cfg(feature = "alloc")]
     pub fn collect_events(self) -> Result<Vec<Vec<Event<'a>>>> {
         self.generic_collect(EventIter::to_vec)
     }
 
+    /// Parse and collect the remaining unparsed tracks into a `Vec` of tracks, keeping a mapping
+    /// to the original bytes that make up each event.
+    ///
+    /// This function is only available with the `alloc` feature enabled.
     #[cfg(feature = "alloc")]
     pub fn collect_bytemapped(self) -> Result<Vec<Vec<(&'a [u8], Event<'a>)>>> {
         self.generic_collect(|events| events.bytemapped().to_vec())
@@ -586,11 +699,12 @@ impl<'a, T: EventKind<'a>> Iterator for EventIterGeneric<'a, T> {
     }
 }
 
-/// An iterator of events over a single track.
-/// Allows deferring the parsing of tracks for later, on an on-demand basis.
+/// An iterator over the events of a single track.
 ///
-/// This is the best option when traversing a track once or avoiding memory allocations.
-/// This `struct` is very light, so it can be cloned freely.
+/// This iterator is lazy, it parses events as it goes, and therefore produces `Result<Event>>`
+/// rather than `Event`.
+///
+/// This type is always available, even in `no_std` environments.
 #[derive(Clone, Debug)]
 pub struct EventIter<'a> {
     inner: EventIterGeneric<'a, Self>,
@@ -602,13 +716,18 @@ impl<'a> EventKind<'a> for EventIter<'a> {
     }
 }
 impl<'a> EventIter<'a> {
+    /// Create an event iterator from raw track bytes.
+    ///
+    /// It can be hard to obtain raw track bytes.
+    /// Usually these raw track bytes are obtained from the [`unread`](#method.unread) method on an
+    /// event iterator.
     pub fn new(raw: &[u8]) -> EventIter {
         EventIter {
             inner: EventIterGeneric::new(raw),
         }
     }
 
-    /// Get the remaining unread bytes.
+    /// Get the remaining unparsed event bytes.
     pub fn unread(&self) -> &'a [u8] {
         self.inner.unread()
     }
@@ -623,6 +742,7 @@ impl<'a> EventIter<'a> {
         self.inner.running_status_mut()
     }
 
+    /// Make this event iterator keep track of the raw bytes that make up each event.
     pub fn bytemapped(self) -> EventBytemapIter<'a> {
         EventBytemapIter {
             inner: EventIterGeneric {
@@ -633,6 +753,12 @@ impl<'a> EventIter<'a> {
         }
     }
 
+    /// Collects the remaining unparsed events into a `Vec<Event>`.
+    ///
+    /// This function is a smarter version of `Iterator::collect`, as it guesses allocations and
+    /// is usually optimized better than its naive counterpart.
+    ///
+    /// This function is only available with the `alloc` feature enabled.
     #[cfg(feature = "alloc")]
     pub fn to_vec(self) -> Result<Vec<Event<'a>>> {
         self.inner.to_vec()
@@ -645,6 +771,13 @@ impl<'a> Iterator for EventIter<'a> {
     }
 }
 
+/// An iterator over the events of a single track that keeps track of the raw bytes that make up
+/// each event.
+///
+/// This iterator is lazy, it parses events as it goes, and therefore produces
+/// `Result<(&[u8], Event)>>` rather than just `(&[u8], Event)`.
+///
+/// This type is always available, even in `no_std` environments.
 pub struct EventBytemapIter<'a> {
     inner: EventIterGeneric<'a, Self>,
 }
@@ -655,13 +788,18 @@ impl<'a> EventKind<'a> for EventBytemapIter<'a> {
     }
 }
 impl<'a> EventBytemapIter<'a> {
+    /// Create an event iterator from raw track bytes.
+    ///
+    /// It can be hard to obtain raw track bytes.
+    /// Usually these raw track bytes are obtained from the [`unread`](#method.unread) method on an
+    /// event iterator.
     pub fn new(raw: &[u8]) -> EventBytemapIter {
         EventBytemapIter {
             inner: EventIterGeneric::new(raw),
         }
     }
 
-    /// Get the remaining unread bytes.
+    /// Get the remaining unparsed event bytes.
     pub fn unread(&self) -> &'a [u8] {
         self.inner.unread()
     }
@@ -676,6 +814,12 @@ impl<'a> EventBytemapIter<'a> {
         self.inner.running_status_mut()
     }
 
+    /// Collects the remaining unparsed events into a `Vec<(&[u8], Event)>`.
+    ///
+    /// This function is a smarter version of `Iterator::collect`, as it guesses allocations and
+    /// is usually optimized better than its naive counterpart.
+    ///
+    /// This function is only available with the `alloc` feature enabled.
     #[cfg(feature = "alloc")]
     pub fn to_vec(self) -> Result<Vec<(&'a [u8], Event<'a>)>> {
         self.inner.to_vec()

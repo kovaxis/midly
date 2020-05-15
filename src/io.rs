@@ -2,8 +2,8 @@ use crate::prelude::*;
 
 pub type IoResult<W> = StdResult<(), <W as Write>::Error>;
 
-pub trait Write: Send {
-    type Error: Send;
+pub trait Write {
+    type Error;
     type Seekable: Write<Error = Self::Error, Seekable = Self::Seekable> + Seek;
     fn write(&mut self, buf: &[u8]) -> IoResult<Self>;
     fn invalid_input(msg: &'static str) -> Self::Error;
@@ -178,9 +178,22 @@ impl<'a> Write for &'a mut [u8] {
     }
 }
 
-pub struct SeekWrap<T>(pub T);
+pub struct IoWrap<T>(pub T);
 #[cfg(feature = "std")]
-impl<T: io::Write + io::Seek + Send> Write for SeekWrap<T> {
+impl<T: io::Write> Write for IoWrap<T> {
+    type Error = io::Error;
+    type Seekable = NotSeekable<Self>;
+    fn write(&mut self, buf: &[u8]) -> io::Result<()> {
+        io::Write::write_all(&mut self.0, buf)
+    }
+    fn invalid_input(msg: &'static str) -> io::Error {
+        io::Error::new(io::ErrorKind::InvalidInput, msg)
+    }
+}
+
+pub struct SeekableWrap<T>(pub T);
+#[cfg(feature = "std")]
+impl<T: io::Write + io::Seek> Write for SeekableWrap<T> {
     type Error = io::Error;
     type Seekable = Self;
     fn write(&mut self, buf: &[u8]) -> io::Result<()> {
@@ -194,7 +207,7 @@ impl<T: io::Write + io::Seek + Send> Write for SeekWrap<T> {
     }
 }
 #[cfg(feature = "std")]
-impl<T: io::Write + io::Seek + Send> Seek for SeekWrap<T> {
+impl<T: io::Write + io::Seek> Seek for SeekableWrap<T> {
     fn tell(&mut self) -> io::Result<u64> {
         io::Seek::seek(&mut self.0, io::SeekFrom::Current(0))
     }
@@ -203,19 +216,6 @@ impl<T: io::Write + io::Seek + Send> Seek for SeekWrap<T> {
         self.write(buf)?;
         io::Seek::seek(&mut self.0, io::SeekFrom::End(0))?;
         Ok(())
-    }
-}
-
-pub struct NonseekWrap<T>(pub T);
-#[cfg(feature = "std")]
-impl<T: io::Write + Send> Write for NonseekWrap<T> {
-    type Error = io::Error;
-    type Seekable = NotSeekable<Self>;
-    fn write(&mut self, buf: &[u8]) -> io::Result<()> {
-        io::Write::write_all(&mut self.0, buf)
-    }
-    fn invalid_input(msg: &'static str) -> io::Error {
-        io::Error::new(io::ErrorKind::InvalidInput, msg)
     }
 }
 
