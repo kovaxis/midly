@@ -36,12 +36,12 @@ macro_rules! impl_read_int {
     {$( $int:ty ),*} => {
         $(
             impl IntRead for $int {
-                fn read(raw: &mut &[u8]) -> StdResult<$int, &'static ErrorKind> {
-                    let bytes = raw.split_checked(mem::size_of::<$int>())
+                fn read(raw: &mut &[u8]) -> StdResult<Self, &'static ErrorKind> {
+                    let bytes = raw.split_checked(mem::size_of::<Self>())
                         .ok_or(err_invalid!("failed to read the expected integer"))?;
                     Ok(bytes.iter().fold(0,|mut acc,byte| {
-                        acc=acc.checked_shl(8).unwrap_or(0);
-                        acc|=*byte as $int;
+                        acc = acc.checked_shl(8).unwrap_or(0);
+                        acc |= *byte as Self;
                         acc
                     }))
                 }
@@ -55,7 +55,7 @@ impl_read_int! {u8,u16,u32}
 macro_rules! int_feature {
     { $name:ident ; $inner:tt : read_u7 } => {
         impl IntReadBottom7 for $name {
-            fn read_u7(raw: &mut &[u8]) -> StdResult<$name, &'static ErrorKind> {
+            fn read_u7(raw: &mut &[u8]) -> StdResult<Self, &'static ErrorKind> {
                 let bytes = raw.split_checked(mem::size_of::<$inner>())
                     .ok_or(err_invalid!("failed to read the expected integer"))?;
                 if cfg!(feature = "strict") {
@@ -68,7 +68,7 @@ macro_rules! int_feature {
                 });
                 Ok(if cfg!(feature = "strict") {
                     Self::try_from(raw).ok_or(err_malformed!(stringify!("expected " $name ", found " $inner)))?
-                }else{
+                } else {
                     //Ignore and truncate extra bits
                     Self::from(raw)
                 })
@@ -81,7 +81,7 @@ macro_rules! int_feature {
                 let raw = $inner::read(raw)?;
                 if cfg!(feature = "strict") {
                     Ok(Self::try_from(raw).ok_or(err_malformed!(concat!("expected ", stringify!($name), ", found ", stringify!($inner))))?)
-                }else{
+                } else {
                     //Throw away extra bits
                     Ok(Self::from(raw))
                 }
@@ -98,7 +98,7 @@ macro_rules! restricted_int {
         impl From<$inner> for $name {
             /// Lossy convertion, loses top bit.
             fn from(raw: $inner) -> Self {
-                $name (bit_range(raw, 0..$bits))
+                Self(bit_range(raw, 0..$bits))
             }
         }
         impl Into<$inner> for $name {
@@ -107,13 +107,13 @@ macro_rules! restricted_int {
         impl $name {
             pub fn try_from(raw: $inner) -> Option<Self> {
                 let trunc = bit_range(raw, 0..$bits);
-                if trunc==raw {
+                if trunc == raw {
                     Some($name(trunc))
-                }else{
+                } else {
                     None
                 }
             }
-            pub fn as_int(self)->$inner {Into::into(self)}
+            pub fn as_int(self) -> $inner { Into::into(self) }
         }
         $( int_feature!{$name ; $inner : $feature} )*
     };
@@ -143,7 +143,7 @@ restricted_int! {
     u28: u32 => 28;
 }
 impl IntReadBottom7 for u28 {
-    fn read_u7(raw: &mut &[u8]) -> StdResult<u28, &'static ErrorKind> {
+    fn read_u7(raw: &mut &[u8]) -> StdResult<Self, &'static ErrorKind> {
         let mut int: u32 = 0;
         for _ in 0..4 {
             let byte = match raw.split_checked(1) {
@@ -162,14 +162,14 @@ impl IntReadBottom7 for u28 {
             if bit_range(byte, 7..8) == 0 {
                 //Since we did at max 4 reads of 7 bits each, there MUST be at max 28 bits in this int
                 //Therefore it's safe to call lossy `from`
-                return Ok(u28::from(int));
+                return Ok(Self::from(int));
             }
         }
         if cfg!(feature = "strict") {
             Err(err_malformed!("varlen integer larger than 4 bytes"))
         } else {
             //Use the 4 bytes as-is
-            Ok(u28::from(int))
+            Ok(Self::from(int))
         }
     }
 }
@@ -248,7 +248,7 @@ pub enum Format {
     Sequential,
 }
 impl Format {
-    pub fn read(raw: &mut &[u8]) -> Result<Format> {
+    pub fn read(raw: &mut &[u8]) -> Result<Self> {
         let format = u16::read(raw)?;
         Ok(match format {
             0 => Self::SingleTrack,
@@ -282,7 +282,7 @@ pub enum Timing {
     Timecode(Fps, u8),
 }
 impl Timing {
-    pub fn read(raw: &mut &[u8]) -> Result<Timing> {
+    pub fn read(raw: &mut &[u8]) -> Result<Self> {
         let raw =
             u16::read(raw).context(err_invalid!("unexpected eof when reading midi timing"))?;
         if bit_range(raw, 15..16) != 0 {
@@ -379,7 +379,7 @@ impl SmpteTime {
         self.second as f32
             + ((self.frame as f32 + self.subframe as f32 / 100.0) / self.fps.as_f32())
     }
-    pub fn read(raw: &mut &[u8]) -> Result<SmpteTime> {
+    pub fn read(raw: &mut &[u8]) -> Result<Self> {
         let data = raw
             .split_checked(5)
             .ok_or(err_invalid!("failed to read smpte time data"))?;
@@ -390,7 +390,7 @@ impl SmpteTime {
         let second = data[2];
         let frame = data[3];
         let subframe = data[4];
-        Ok(SmpteTime::new(hour, minute, second, frame, subframe, fps)
+        Ok(Self::new(hour, minute, second, frame, subframe, fps)
             .ok_or(err_invalid!("invalid smpte time"))?)
     }
     #[cfg(feature = "std")]
@@ -422,7 +422,7 @@ pub enum Fps {
 }
 impl Fps {
     /// Does the conversion from a 2-bit fps code to an `Fps` value.
-    pub fn from_code(code: u2) -> Fps {
+    pub fn from_code(code: u2) -> Self {
         match code.as_int() {
             0 => Self::Fps24,
             1 => Self::Fps25,
@@ -441,7 +441,7 @@ impl Fps {
         })
     }
     /// Converts an integer representing the semantic fps to an `Fps` value (ie. `24` -> `Fps24`).
-    pub fn from_int(raw: u8) -> Option<Fps> {
+    pub fn from_int(raw: u8) -> Option<Self> {
         Some(match raw {
             24 => Self::Fps24,
             25 => Self::Fps25,
