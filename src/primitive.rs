@@ -251,18 +251,18 @@ impl Format {
     pub fn read(raw: &mut &[u8]) -> Result<Format> {
         let format = u16::read(raw)?;
         Ok(match format {
-            0 => Format::SingleTrack,
-            1 => Format::Parallel,
-            2 => Format::Sequential,
+            0 => Self::SingleTrack,
+            1 => Self::Parallel,
+            2 => Self::Sequential,
             _ => bail!(err_invalid!("invalid smf format")),
         })
     }
     #[cfg(feature = "std")]
     pub fn encode(&self) -> [u8; 2] {
         let code: u16 = match self {
-            Format::SingleTrack => 0,
-            Format::Parallel => 1,
-            Format::Sequential => 2,
+            Self::SingleTrack => 0,
+            Self::Parallel => 1,
+            Self::Sequential => 2,
         };
         code.to_be_bytes()
     }
@@ -289,20 +289,20 @@ impl Timing {
             //Timecode
             let fps = -(bit_range(raw, 8..16) as i8);
             let subframe = bit_range(raw, 0..8) as u8;
-            Ok(Timing::Timecode(
+            Ok(Self::Timecode(
                 Fps::from_int(fps as u8).ok_or(err_invalid!("invalid smpte fps"))?,
                 subframe,
             ))
         } else {
             //Metrical
-            Ok(Timing::Metrical(u15::from(raw)))
+            Ok(Self::Metrical(u15::from(raw)))
         }
     }
     #[cfg(feature = "std")]
     pub fn encode(&self) -> [u8; 2] {
         match self {
-            Timing::Metrical(ticksperbeat) => ticksperbeat.as_int().to_be_bytes(),
-            Timing::Timecode(framespersec, ticksperframe) => {
+            Self::Metrical(ticksperbeat) => ticksperbeat.as_int().to_be_bytes(),
+            Self::Timecode(framespersec, ticksperframe) => {
                 [(-(framespersec.as_int() as i8)) as u8, *ticksperframe]
             }
         }
@@ -335,7 +335,7 @@ impl SmpteTime {
         frame: u8,
         subframe: u8,
         fps: Fps,
-    ) -> Option<SmpteTime> {
+    ) -> Option<Self> {
         macro_rules! check {
             ($cond:expr) => {{
                 if !{ $cond } {
@@ -348,7 +348,7 @@ impl SmpteTime {
         check!(second < 60);
         check!(frame < fps.as_int());
         check!(subframe < 100);
-        Some(SmpteTime {
+        Some(Self {
             hour,
             minute,
             second,
@@ -424,39 +424,39 @@ impl Fps {
     /// Does the conversion from a 2-bit fps code to an `Fps` value.
     pub fn from_code(code: u2) -> Fps {
         match code.as_int() {
-            0 => Fps::Fps24,
-            1 => Fps::Fps25,
-            2 => Fps::Fps29,
-            3 => Fps::Fps30,
+            0 => Self::Fps24,
+            1 => Self::Fps25,
+            2 => Self::Fps29,
+            3 => Self::Fps30,
             _ => unreachable!(),
         }
     }
     /// Does the conversion to a 2-bit fps code.
     pub fn as_code(self) -> u2 {
         u2::from(match self {
-            Fps::Fps24 => 0,
-            Fps::Fps25 => 1,
-            Fps::Fps29 => 2,
-            Fps::Fps30 => 3,
+            Self::Fps24 => 0,
+            Self::Fps25 => 1,
+            Self::Fps29 => 2,
+            Self::Fps30 => 3,
         })
     }
     /// Converts an integer representing the semantic fps to an `Fps` value (ie. `24` -> `Fps24`).
     pub fn from_int(raw: u8) -> Option<Fps> {
         Some(match raw {
-            24 => Fps::Fps24,
-            25 => Fps::Fps25,
-            29 => Fps::Fps29,
-            30 => Fps::Fps30,
+            24 => Self::Fps24,
+            25 => Self::Fps25,
+            29 => Self::Fps29,
+            30 => Self::Fps30,
             _ => return None,
         })
     }
     /// Get the integral approximate fps out.
     pub fn as_int(self) -> u8 {
         match self {
-            Fps::Fps24 => 24,
-            Fps::Fps25 => 25,
-            Fps::Fps29 => 29,
-            Fps::Fps30 => 30,
+            Self::Fps24 => 24,
+            Self::Fps25 => 25,
+            Self::Fps29 => 29,
+            Self::Fps30 => 30,
         }
     }
     /// Get the actual `f32` fps out.

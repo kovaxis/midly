@@ -27,11 +27,11 @@ impl<'a> Event<'a> {
     /// The second argument is a mutable reference to the current "running status".
     /// Running status allows consecutive events to share their status if there is no status change,
     /// so running status should be shared across calls to `Event::read`.
-    pub fn read(raw: &mut &'a [u8], running_status: &mut Option<u8>) -> Result<Event<'a>> {
+    pub fn read(raw: &mut &'a [u8], running_status: &mut Option<u8>) -> Result<Self> {
         let delta = u28::read_u7(raw).context(err_invalid!("failed to read event deltatime"))?;
         let kind =
             EventKind::read(raw, running_status).context(err_invalid!("failed to parse event"))?;
-        Ok(Event { delta, kind })
+        Ok(Self { delta, kind })
     }
 
     #[cfg(feature = "std")]
@@ -106,7 +106,7 @@ impl<'a> EventKind<'a> {
             0x80..=0xEF => {
                 *running_status = Some(status);
                 let channel = u4::from(bit_range(status, 0..4));
-                EventKind::Midi {
+                Self::Midi {
                     channel,
                     message: MidiMessage::read(raw, status)
                         .context(err_invalid!("failed to read midi message"))?,
@@ -114,17 +114,17 @@ impl<'a> EventKind<'a> {
             }
             0xF0 => {
                 *running_status = None;
-                EventKind::SysEx(
+                Self::SysEx(
                     read_varlen_slice(raw).context(err_invalid!("failed to read sysex event"))?,
                 )
             }
             0xF7 => {
                 *running_status = None;
-                EventKind::Escape(
+                Self::Escape(
                     read_varlen_slice(raw).context(err_invalid!("failed to read escape event"))?,
                 )
             }
-            0xFF => EventKind::Meta(
+            0xFF => Self::Meta(
                 MetaMessage::read(raw).context(err_invalid!("failed to read meta event"))?,
             ),
             _ => bail!(err_invalid!("invalid event status")),
@@ -147,7 +147,7 @@ impl<'a> EventKind<'a> {
         // - System Realtime (0xF8 ..= 0xFF), including Meta Messages, do not alter running status
         //      and cannot use it either
         match self {
-            EventKind::Midi { channel, message } => {
+            Self::Midi { channel, message } => {
                 let status = message.status_nibble() << 4 | channel.as_int();
                 if Some(status) != *running_status {
                     //Explicitly write status
@@ -156,17 +156,17 @@ impl<'a> EventKind<'a> {
                 }
                 message.write(out)?;
             }
-            EventKind::SysEx(data) => {
+            Self::SysEx(data) => {
                 *running_status = None;
                 out.write_all(&[0xF0])?;
                 write_varlen_slice(data, out)?;
             }
-            EventKind::Escape(data) => {
+            Self::Escape(data) => {
                 *running_status = None;
                 out.write_all(&[0xF7])?;
                 write_varlen_slice(data, out)?;
             }
-            EventKind::Meta(meta) => {
+            Self::Meta(meta) => {
                 out.write_all(&[0xFF])?;
                 meta.write(out)?;
             }
@@ -235,28 +235,28 @@ pub enum MidiMessage {
 impl MidiMessage {
     /// Receives a slice pointing to midi args (not including status byte)
     /// Status byte is given separately to reuse running status
-    fn read(raw: &mut &[u8], status: u8) -> Result<MidiMessage> {
+    fn read(raw: &mut &[u8], status: u8) -> Result<Self> {
         Ok(match bit_range(status, 4..8) {
-            0x8 => MidiMessage::NoteOff {
+            0x8 => Self::NoteOff {
                 key: u7::read(raw)?,
                 vel: u7::read(raw)?,
             },
-            0x9 => MidiMessage::NoteOn {
+            0x9 => Self::NoteOn {
                 key: u7::read(raw)?,
                 vel: u7::read(raw)?,
             },
-            0xA => MidiMessage::Aftertouch {
+            0xA => Self::Aftertouch {
                 key: u7::read(raw)?,
                 vel: u7::read(raw)?,
             },
-            0xB => MidiMessage::Controller {
+            0xB => Self::Controller {
                 controller: u7::read(raw)?,
                 value: u7::read(raw)?,
             },
-            0xC => MidiMessage::ProgramChange {
+            0xC => Self::ProgramChange {
                 program: u7::read(raw)?,
             },
-            0xD => MidiMessage::ChannelAftertouch {
+            0xD => Self::ChannelAftertouch {
                 vel: u7::read(raw)?,
             },
             0xE => {
@@ -264,7 +264,7 @@ impl MidiMessage {
                 //Standard Midi Files
                 let lsb = u7::read(raw)?.as_int() as u16;
                 let msb = u7::read(raw)?.as_int() as u16;
-                MidiMessage::PitchBend {
+                Self::PitchBend {
                     bend: u14::from(msb << 7 | lsb),
                 }
             }
@@ -275,27 +275,27 @@ impl MidiMessage {
     #[cfg(feature = "std")]
     fn status_nibble(&self) -> u8 {
         match self {
-            MidiMessage::NoteOff { .. } => 0x8,
-            MidiMessage::NoteOn { .. } => 0x9,
-            MidiMessage::Aftertouch { .. } => 0xA,
-            MidiMessage::Controller { .. } => 0xB,
-            MidiMessage::ProgramChange { .. } => 0xC,
-            MidiMessage::ChannelAftertouch { .. } => 0xD,
-            MidiMessage::PitchBend { .. } => 0xE,
+            Self::NoteOff { .. } => 0x8,
+            Self::NoteOn { .. } => 0x9,
+            Self::Aftertouch { .. } => 0xA,
+            Self::Controller { .. } => 0xB,
+            Self::ProgramChange { .. } => 0xC,
+            Self::ChannelAftertouch { .. } => 0xD,
+            Self::PitchBend { .. } => 0xE,
         }
     }
     #[cfg(feature = "std")]
     fn write<W: Write>(&self, out: &mut W) -> IoResult<()> {
         match self {
-            MidiMessage::NoteOff { key, vel } => out.write_all(&[key.as_int(), vel.as_int()])?,
-            MidiMessage::NoteOn { key, vel } => out.write_all(&[key.as_int(), vel.as_int()])?,
-            MidiMessage::Aftertouch { key, vel } => out.write_all(&[key.as_int(), vel.as_int()])?,
-            MidiMessage::Controller { controller, value } => {
+            Self::NoteOff { key, vel } => out.write_all(&[key.as_int(), vel.as_int()])?,
+            Self::NoteOn { key, vel } => out.write_all(&[key.as_int(), vel.as_int()])?,
+            Self::Aftertouch { key, vel } => out.write_all(&[key.as_int(), vel.as_int()])?,
+            Self::Controller { controller, value } => {
                 out.write_all(&[controller.as_int(), value.as_int()])?
             }
-            MidiMessage::ProgramChange { program } => out.write_all(&[program.as_int()])?,
-            MidiMessage::ChannelAftertouch { vel } => out.write_all(&[vel.as_int()])?,
-            MidiMessage::PitchBend { bend } => {
+            Self::ProgramChange { program } => out.write_all(&[program.as_int()])?,
+            Self::ChannelAftertouch { vel } => out.write_all(&[vel.as_int()])?,
+            Self::PitchBend { bend } => {
                 out.write_all(&[(bend.as_int() & 0x7F) as u8, (bend.as_int() >> 7) as u8])?
             }
         }
@@ -344,12 +344,12 @@ pub enum MetaMessage<'a> {
     Unknown(u8, &'a [u8]),
 }
 impl<'a> MetaMessage<'a> {
-    fn read(raw: &mut &'a [u8]) -> Result<MetaMessage<'a>> {
+    fn read(raw: &mut &'a [u8]) -> Result<Self> {
         let type_byte = u8::read(raw).context(err_invalid!("failed to read meta message type"))?;
         let mut data =
             read_varlen_slice(raw).context(err_invalid!("failed to read meta message data"))?;
         Ok(match type_byte {
-            0x00 => MetaMessage::TrackNumber({
+            0x00 => Self::TrackNumber({
                 if cfg!(feature = "strict") {
                     ensure!(
                         data.len() == 0 || data.len() == 2,
@@ -362,15 +362,15 @@ impl<'a> MetaMessage<'a> {
                     None
                 }
             }),
-            0x01 => MetaMessage::Text(data),
-            0x02 => MetaMessage::Copyright(data),
-            0x03 => MetaMessage::TrackName(data),
-            0x04 => MetaMessage::InstrumentName(data),
-            0x05 => MetaMessage::Lyric(data),
-            0x06 => MetaMessage::Marker(data),
-            0x07 => MetaMessage::CuePoint(data),
-            0x08 => MetaMessage::ProgramName(data),
-            0x09 => MetaMessage::DeviceName(data),
+            0x01 => Self::Text(data),
+            0x02 => Self::Copyright(data),
+            0x03 => Self::TrackName(data),
+            0x04 => Self::InstrumentName(data),
+            0x05 => Self::Lyric(data),
+            0x06 => Self::Marker(data),
+            0x07 => Self::CuePoint(data),
+            0x08 => Self::ProgramName(data),
+            0x09 => Self::DeviceName(data),
             0x20 if data.len() >= 1 => {
                 if cfg!(feature = "strict") {
                     ensure!(
@@ -378,7 +378,7 @@ impl<'a> MetaMessage<'a> {
                         err_malformed!("invalid midichannel event length")
                     );
                 }
-                MetaMessage::MidiChannel(u4::read(&mut data)?)
+                Self::MidiChannel(u4::read(&mut data)?)
             }
             0x21 if data.len() >= 1 => {
                 if cfg!(feature = "strict") {
@@ -387,7 +387,7 @@ impl<'a> MetaMessage<'a> {
                         err_malformed!("invalid midiport event length")
                     );
                 }
-                MetaMessage::MidiPort(u7::read(&mut data)?)
+                Self::MidiPort(u7::read(&mut data)?)
             }
             0x2F => {
                 if cfg!(feature = "strict") {
@@ -396,7 +396,7 @@ impl<'a> MetaMessage<'a> {
                         err_malformed!("invalid endoftrack event length")
                     );
                 }
-                MetaMessage::EndOfTrack
+                Self::EndOfTrack
             }
             0x51 if data.len() >= 3 => {
                 if cfg!(feature = "strict") {
@@ -405,7 +405,7 @@ impl<'a> MetaMessage<'a> {
                         err_malformed!("invalid tempo event length")
                     );
                 }
-                MetaMessage::Tempo(u24::read(&mut data)?)
+                Self::Tempo(u24::read(&mut data)?)
             }
             0x54 if data.len() >= 5 => {
                 if cfg!(feature = "strict") {
@@ -414,7 +414,7 @@ impl<'a> MetaMessage<'a> {
                         err_malformed!("invalid smpteoffset event length")
                     );
                 }
-                MetaMessage::SmpteOffset(
+                Self::SmpteOffset(
                     SmpteTime::read(&mut data)
                         .context(err_invalid!("failed to read smpte time"))?,
                 )
@@ -426,7 +426,7 @@ impl<'a> MetaMessage<'a> {
                         err_malformed!("invalid timesignature event length")
                     );
                 }
-                MetaMessage::TimeSignature(
+                Self::TimeSignature(
                     u8::read(&mut data)?,
                     u8::read(&mut data)?,
                     u8::read(&mut data)?,
@@ -434,10 +434,10 @@ impl<'a> MetaMessage<'a> {
                 )
             }
             0x59 => {
-                MetaMessage::KeySignature(u8::read(&mut data)? as i8, u8::read(&mut data)? != 0)
+                Self::KeySignature(u8::read(&mut data)? as i8, u8::read(&mut data)? != 0)
             }
-            0x7F => MetaMessage::SequencerSpecific(data),
-            _ => MetaMessage::Unknown(type_byte, data),
+            0x7F => Self::SequencerSpecific(data),
+            _ => Self::Unknown(type_byte, data),
         })
     }
     #[cfg(feature = "std")]
@@ -448,37 +448,37 @@ impl<'a> MetaMessage<'a> {
             Ok(())
         };
         match self {
-            MetaMessage::TrackNumber(track_num) => match track_num {
+            Self::TrackNumber(track_num) => match track_num {
                 None => write_msg(0x00, &[]),
                 Some(track_num) => write_msg(0x00, &track_num.to_be_bytes()[..]),
             },
-            MetaMessage::Text(data) => write_msg(0x01, data),
-            MetaMessage::Copyright(data) => write_msg(0x02, data),
-            MetaMessage::TrackName(data) => write_msg(0x03, data),
-            MetaMessage::InstrumentName(data) => write_msg(0x04, data),
-            MetaMessage::Lyric(data) => write_msg(0x05, data),
-            MetaMessage::Marker(data) => write_msg(0x06, data),
-            MetaMessage::CuePoint(data) => write_msg(0x07, data),
-            MetaMessage::ProgramName(data) => write_msg(0x08, data),
-            MetaMessage::DeviceName(data) => write_msg(0x09, data),
-            MetaMessage::MidiChannel(chan) => write_msg(0x20, &[chan.as_int()]),
-            MetaMessage::MidiPort(port) => write_msg(0x21, &[port.as_int()]),
-            MetaMessage::EndOfTrack => write_msg(0x2F, &[]),
-            MetaMessage::Tempo(microsperbeat) => {
+            Self::Text(data) => write_msg(0x01, data),
+            Self::Copyright(data) => write_msg(0x02, data),
+            Self::TrackName(data) => write_msg(0x03, data),
+            Self::InstrumentName(data) => write_msg(0x04, data),
+            Self::Lyric(data) => write_msg(0x05, data),
+            Self::Marker(data) => write_msg(0x06, data),
+            Self::CuePoint(data) => write_msg(0x07, data),
+            Self::ProgramName(data) => write_msg(0x08, data),
+            Self::DeviceName(data) => write_msg(0x09, data),
+            Self::MidiChannel(chan) => write_msg(0x20, &[chan.as_int()]),
+            Self::MidiPort(port) => write_msg(0x21, &[port.as_int()]),
+            Self::EndOfTrack => write_msg(0x2F, &[]),
+            Self::Tempo(microsperbeat) => {
                 write_msg(0x51, &microsperbeat.as_int().to_be_bytes()[1..])
             }
-            MetaMessage::SmpteOffset(smpte) => write_msg(0x54, &smpte.encode()[..]),
-            MetaMessage::TimeSignature(num, den, ticksperclick, thirtysecondsperquarter) => {
+            Self::SmpteOffset(smpte) => write_msg(0x54, &smpte.encode()[..]),
+            Self::TimeSignature(num, den, ticksperclick, thirtysecondsperquarter) => {
                 write_msg(
                     0x58,
                     &[*num, *den, *ticksperclick, *thirtysecondsperquarter],
                 )
             }
-            MetaMessage::KeySignature(sharps, minor) => {
+            Self::KeySignature(sharps, minor) => {
                 write_msg(0x59, &[*sharps as u8, *minor as u8])
             }
-            MetaMessage::SequencerSpecific(data) => write_msg(0x7F, data),
-            MetaMessage::Unknown(type_byte, data) => write_msg(*type_byte, data),
+            Self::SequencerSpecific(data) => write_msg(0x7F, data),
+            Self::Unknown(type_byte, data) => write_msg(*type_byte, data),
         }
     }
 }

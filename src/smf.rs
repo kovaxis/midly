@@ -257,9 +257,9 @@ impl<'a> Chunk<'a> {
         chunk_parse_result: Result<Chunk<'a>>,
     ) -> Option<Result<T>> {
         match chunk_parse_result {
-            Ok(Chunk::Track(track)) => Some(T::read(track)),
+            Ok(Self::Track(track)) => Some(T::read(track)),
             //Read another header (?)
-            Ok(Chunk::Header(..)) => {
+            Ok(Self::Header(..)) => {
                 if cfg!(feature = "strict") {
                     Some(Err(err_malformed!("found duplicate header").into()))
                 } else {
