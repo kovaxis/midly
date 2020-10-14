@@ -102,7 +102,7 @@ macro_rules! restricted_int {
             }
         }
         impl Into<$inner> for $name {
-            fn into(self) -> $inner {self.0}
+            fn into(self) -> $inner { self.0 }
         }
         impl $name {
             pub fn try_from(raw: $inner) -> Option<Self> {
@@ -125,12 +125,12 @@ restricted_int! {u4: u8 => 4; read}
 restricted_int! {u2: u8 => 2; read}
 restricted_int! {u24: u32 => 24;}
 impl IntRead for u24 {
-    fn read(raw: &mut &[u8]) -> StdResult<u24, &'static ErrorKind> {
+    fn read(raw: &mut &[u8]) -> StdResult<Self, &'static ErrorKind> {
         let bytes = raw
             .split_checked(3)
             .ok_or(err_invalid!("failed to read u24 bytes"))?;
         //Using lossy `from` because value is guaranteed to be 24 bits (3 bytes)
-        Ok(u24::from(bytes.iter().fold(0, |mut acc, byte| {
+        Ok(Self::from(bytes.iter().fold(0, |mut acc, byte| {
             acc <<= 8;
             acc |= *byte as u32;
             acc

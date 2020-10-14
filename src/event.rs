@@ -433,9 +433,7 @@ impl<'a> MetaMessage<'a> {
                     u8::read(&mut data)?,
                 )
             }
-            0x59 => {
-                Self::KeySignature(u8::read(&mut data)? as i8, u8::read(&mut data)? != 0)
-            }
+            0x59 => Self::KeySignature(u8::read(&mut data)? as i8, u8::read(&mut data)? != 0),
             0x7F => Self::SequencerSpecific(data),
             _ => Self::Unknown(type_byte, data),
         })
@@ -468,15 +466,11 @@ impl<'a> MetaMessage<'a> {
                 write_msg(0x51, &microsperbeat.as_int().to_be_bytes()[1..])
             }
             Self::SmpteOffset(smpte) => write_msg(0x54, &smpte.encode()[..]),
-            Self::TimeSignature(num, den, ticksperclick, thirtysecondsperquarter) => {
-                write_msg(
-                    0x58,
-                    &[*num, *den, *ticksperclick, *thirtysecondsperquarter],
-                )
-            }
-            Self::KeySignature(sharps, minor) => {
-                write_msg(0x59, &[*sharps as u8, *minor as u8])
-            }
+            Self::TimeSignature(num, den, ticksperclick, thirtysecondsperquarter) => write_msg(
+                0x58,
+                &[*num, *den, *ticksperclick, *thirtysecondsperquarter],
+            ),
+            Self::KeySignature(sharps, minor) => write_msg(0x59, &[*sharps as u8, *minor as u8]),
             Self::SequencerSpecific(data) => write_msg(0x7F, data),
             Self::Unknown(type_byte, data) => write_msg(*type_byte, data),
         }

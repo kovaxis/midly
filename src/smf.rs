@@ -34,8 +34,8 @@ impl<'a> Smf<'a, Vec<(&'a [u8], Event<'a>)>> {
     ///
     /// Same with the `parse` method, this method parses the events immediately into a
     /// `Vec<(&[u8], Event)>`.
-    pub fn parse_with_bytemap(raw: &'a [u8]) -> Result<Smf<Vec<(&[u8], Event)>>> {
-        Smf::read(raw)
+    pub fn parse_with_bytemap(raw: &'a [u8]) -> Result<Self> {
+        Self::read(raw)
     }
 }
 impl<'a> Smf<'a, TrackIter<'a>> {
@@ -46,8 +46,8 @@ impl<'a> Smf<'a, TrackIter<'a>> {
     /// except in very niche cases.
     /// Because the other `parse` methods use multiple threads to parse tracks, the use of this
     /// method is discouraged as it carries a performance penalty unless done correctly.
-    pub fn parse_lazy(raw: &'a [u8]) -> Result<Smf<TrackIter>> {
-        Smf::read(raw)
+    pub fn parse_lazy(raw: &'a [u8]) -> Result<Self> {
+        Self::read(raw)
     }
 }
 impl<'a, T: TrackRepr<'a>> Smf<'a, T> {
@@ -253,9 +253,7 @@ impl<'a> Chunk<'a> {
     }
 
     /// Interpret the chunk as a track.
-    fn parse_into_track<T: TrackRepr<'a>>(
-        chunk_parse_result: Result<Self>,
-    ) -> Option<Result<T>> {
+    fn parse_into_track<T: TrackRepr<'a>>(chunk_parse_result: Result<Self>) -> Option<Result<T>> {
         match chunk_parse_result {
             Ok(Self::Track(track)) => Some(T::read(track)),
             //Read another header (?)
