@@ -7,7 +7,7 @@ use crate::prelude::*;
 struct ChunkIter<'a>(&'a [u8]);
 impl<'a> Iterator for ChunkIter<'a> {
     type Item = ([u8; 4], &'a [u8]);
-    fn next(&mut self) -> Option<([u8; 4], &'a [u8])> {
+    fn next(&mut self) -> Option<Self::Item> {
         if self.0.len() >= 8 {
             let mut id = [0; 4];
             let mut len = [0; 4];
