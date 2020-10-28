@@ -231,7 +231,7 @@ impl IntReadBottom7 for u28 {
 }
 
 impl u28 {
-    pub(crate) fn write_varlen<W: Write>(&self, out: &mut W) -> IoResult<W> {
+    pub(crate) fn write_varlen<W: Write>(&self, out: &mut W) -> WriteResult<W> {
         let int = self.as_int();
         let mut skipping = true;
         for i in (0..4).rev() {
@@ -273,7 +273,7 @@ pub(crate) fn read_varlen_slice<'a>(raw: &mut &'a [u8]) -> Result<&'a [u8]> {
 }
 
 /// Write a slice represented as a varlen `u28` as its length and then the raw bytes.
-pub(crate) fn write_varlen_slice<W: Write>(slice: &[u8], out: &mut W) -> IoResult<W> {
+pub(crate) fn write_varlen_slice<W: Write>(slice: &[u8], out: &mut W) -> WriteResult<W> {
     let len = u32::try_from(slice.len())
         .ok()
         .and_then(u28::try_from)

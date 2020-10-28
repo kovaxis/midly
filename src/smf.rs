@@ -44,6 +44,9 @@ const EVENTS_TO_BYTES: f32 = 3.4;
 #[cfg(feature = "parallel")]
 const PARALLEL_ENABLE_THRESHOLD: usize = 3 * 1024;
 
+/// A single track: simply a list of track events.
+pub type Track<'a> = Vec<TrackEvent<'a>>;
+
 /// Represents a single `.mid` Standard Midi File.
 /// If you're casually looking to parse a `.mid` file, this is the type you're looking for.
 ///
@@ -57,12 +60,12 @@ pub struct Smf<'a> {
     /// A list of tracks within this MIDI file.
     ///
     /// Each track consists simply of a list of events (ie. there is no track metadata).
-    pub tracks: Vec<Vec<TrackEvent<'a>>>,
+    pub tracks: Vec<Track<'a>>,
 }
 #[cfg(feature = "alloc")]
 impl Smf<'_> {
     /// Create a new `Smf` from its raw parts.
-    pub fn new(header: Header, tracks: Vec<Vec<TrackEvent>>) -> Smf {
+    pub fn new(header: Header, tracks: Vec<Track>) -> Smf {
         Smf { header, tracks }
     }
 
@@ -71,7 +74,7 @@ impl Smf<'_> {
     pub fn parse(raw: &[u8]) -> Result<Smf> {
         let (header, tracks) = parse(raw)?;
         let track_count_hint = tracks.track_count_hint;
-        let tracks = tracks.collect_events()?;
+        let tracks = tracks.collect_tracks()?;
         validate_smf(&header, track_count_hint, tracks.len())?;
         Ok(Smf { header, tracks })
     }
@@ -85,7 +88,7 @@ impl Smf<'_> {
     /// [`write_std`](#method.write_std) method.
     ///
     /// This function is always available, even in `no_std` environments.
-    pub fn write<W: Write>(&self, out: &mut W) -> IoResult<W> {
+    pub fn write<W: Write>(&self, out: &mut W) -> WriteResult<W> {
         write(&self.header, &self.tracks, out)
     }
 
@@ -147,7 +150,7 @@ impl<'a> SmfBytemap<'a> {
     }
 
     /// Encodes and writes the *events* (not the bytemap) to the given generic writer.
-    pub fn write<W: Write>(&self, out: &mut W) -> IoResult<W> {
+    pub fn write<W: Write>(&self, out: &mut W) -> WriteResult<W> {
         write(
             &self.header,
             self.tracks
@@ -246,7 +249,7 @@ pub fn parse(raw: &[u8]) -> Result<(Header, TrackIter)> {
 ///
 /// Otherwise, encoding will happen twice: once to determine the size of the chunks and once again
 /// to actually write down the file.
-pub fn write<'a, T, E, W>(header: &Header, tracks: T, out: &mut W) -> IoResult<W>
+pub fn write<'a, T, E, W>(header: &Header, tracks: T, out: &mut W) -> WriteResult<W>
 where
     T: IntoIterator<Item = E>,
     T::IntoIter: ExactSizeIterator + Clone + Send,
@@ -416,7 +419,7 @@ impl<'a> Chunk<'a> {
     }
 
     /// Write a header chunk into a writer.
-    fn write_header<W: Write>(header: &Header, track_count: usize, out: &mut W) -> IoResult<W> {
+    fn write_header<W: Write>(header: &Header, track_count: usize, out: &mut W) -> WriteResult<W> {
         let mut header_chunk = [0; 4 + 4 + 6];
         let track_count = u16::try_from(track_count)
             .map_err(|_| W::invalid_input("track count exceeds 16 bit range"))?;
@@ -435,7 +438,7 @@ impl<'a> Chunk<'a> {
     fn write_probe<W: Write>(
         track: impl Iterator<Item = &'a TrackEvent<'a>> + Clone,
         out: &mut W,
-    ) -> IoResult<W> {
+    ) -> WriteResult<W> {
         let mut counter = WriteCounter(0);
         Self::write_raw(track.clone(), &mut counter).map_err(W::invalid_input)?;
         let len = Self::check_len::<W, _>(counter.0)?;
@@ -453,7 +456,7 @@ impl<'a> Chunk<'a> {
     fn write_seek<W: Write + Seek>(
         track: impl Iterator<Item = &'a TrackEvent<'a>>,
         out: &mut W,
-    ) -> IoResult<W> {
+    ) -> WriteResult<W> {
         out.write(b"MTrk\0\0\0\0")?;
         let start = out.tell()?;
         Self::write_raw(track, out)?;
@@ -470,7 +473,7 @@ impl<'a> Chunk<'a> {
     fn write_to_vec(
         track: impl Iterator<Item = &'a TrackEvent<'a>>,
         out: &mut Vec<u8>,
-    ) -> IoResult<Vec<u8>> {
+    ) -> WriteResult<Vec<u8>> {
         let cap = (track.size_hint().0 as f32 * EVENTS_TO_BYTES) as usize;
         out.clear();
         out.reserve(8 + cap);
@@ -485,7 +488,7 @@ impl<'a> Chunk<'a> {
     fn write_raw<W: Write>(
         track: impl Iterator<Item = &'a TrackEvent<'a>>,
         out: &mut W,
-    ) -> IoResult<W> {
+    ) -> WriteResult<W> {
         let mut running_status = None;
         for ev in track {
             ev.write(&mut running_status, out)?;
@@ -558,7 +561,7 @@ impl<'a> TrackIter<'a> {
     ///
     /// This function is only available with the `alloc` feature enabled.
     #[cfg(feature = "alloc")]
-    pub fn collect_events(self) -> Result<Vec<Vec<TrackEvent<'a>>>> {
+    pub fn collect_tracks(self) -> Result<Vec<Track<'a>>> {
         self.generic_collect(EventIter::into_vec)
     }
 
@@ -769,14 +772,14 @@ impl<'a> EventIter<'a> {
         }
     }
 
-    /// Collects the remaining unparsed events into a `Vec<TrackEvent>`.
+    /// Collects the remaining unparsed events into a `Track`.
     ///
     /// This function is a smarter version of `Iterator::collect`, as it guesses allocations and
     /// is usually optimized better than its naive counterpart.
     ///
     /// This function is only available with the `alloc` feature enabled.
     #[cfg(feature = "alloc")]
-    pub fn into_vec(self) -> Result<Vec<TrackEvent<'a>>> {
+    pub fn into_vec(self) -> Result<Track<'a>> {
         self.inner.into_vec()
     }
 }

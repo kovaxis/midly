@@ -8,7 +8,7 @@
 use crate::prelude::*;
 
 /// Either `Ok(())` or the error specific to the `W` writer.
-pub type IoResult<W> = StdResult<(), <W as Write>::Error>;
+pub type WriteResult<W> = StdResult<(), <W as Write>::Error>;
 
 /// A `Write` trait available even in `no_std` environments, and with per-type errors.
 pub trait Write {
@@ -20,7 +20,7 @@ pub trait Write {
     /// Write a slice of data to the writer.
     ///
     /// Should error if not all of the data could be written.
-    fn write(&mut self, buf: &[u8]) -> IoResult<Self>;
+    fn write(&mut self, buf: &[u8]) -> WriteResult<Self>;
     /// Create an "invalid input"-style error from a string literal.
     fn invalid_input(msg: &'static str) -> Self::Error;
     /// Make this writer seekable, if possible.
@@ -38,7 +38,7 @@ pub trait Seek: Write {
     fn tell(&mut self) -> StdResult<u64, Self::Error>;
     /// Write a slice of data at the given absolute position, and return to the end of the writer
     /// afterwards.
-    fn write_at(&mut self, buf: &[u8], pos: u64) -> IoResult<Self>;
+    fn write_at(&mut self, buf: &[u8], pos: u64) -> WriteResult<Self>;
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -66,7 +66,7 @@ impl<W> NotSeekable<W> {
 impl<W: Write> Write for NotSeekable<W> {
     type Error = W::Error;
     type Seekable = Self;
-    fn write(&mut self, _: &[u8]) -> IoResult<Self> {
+    fn write(&mut self, _: &[u8]) -> WriteResult<Self> {
         self.as_never()
     }
     fn invalid_input(msg: &'static str) -> W::Error {
@@ -78,7 +78,7 @@ impl<W: Write> Seek for NotSeekable<W> {
     fn tell(&mut self) -> StdResult<u64, W::Error> {
         self.as_never()
     }
-    fn write_at(&mut self, _: &[u8], _: u64) -> IoResult<Self> {
+    fn write_at(&mut self, _: &[u8], _: u64) -> WriteResult<Self> {
         self.as_never()
     }
 }
@@ -86,7 +86,7 @@ impl<W: Write> Seek for NotSeekable<W> {
 impl<'a, W: Write> Write for &'a mut W {
     type Error = W::Error;
     type Seekable = W::Seekable;
-    fn write(&mut self, buf: &[u8]) -> IoResult<W> {
+    fn write(&mut self, buf: &[u8]) -> WriteResult<W> {
         W::write(self, buf)
     }
     fn invalid_input(msg: &'static str) -> W::Error {
@@ -101,7 +101,7 @@ impl<'a, W: Write> Write for &'a mut W {
 impl Write for Vec<u8> {
     type Error = &'static str;
     type Seekable = Self;
-    fn write(&mut self, buf: &[u8]) -> IoResult<Self> {
+    fn write(&mut self, buf: &[u8]) -> WriteResult<Self> {
         self.extend_from_slice(buf);
         Ok(())
     }
@@ -117,7 +117,7 @@ impl Seek for Vec<u8> {
     fn tell(&mut self) -> StdResult<u64, Self::Error> {
         Ok(self.len() as u64)
     }
-    fn write_at(&mut self, buf: &[u8], pos: u64) -> IoResult<Self> {
+    fn write_at(&mut self, buf: &[u8], pos: u64) -> WriteResult<Self> {
         let out = self
             .get_mut(pos as usize..pos as usize + buf.len())
             .ok_or("invalid seekback")?;
@@ -202,7 +202,7 @@ impl<'a> Cursor<'a> {
 impl<'a> Write for Cursor<'a> {
     type Error = CursorError;
     type Seekable = Self;
-    fn write(&mut self, buf: &[u8]) -> IoResult<Self> {
+    fn write(&mut self, buf: &[u8]) -> WriteResult<Self> {
         //Cannot overflow because `cur <= buf.len()` is always true.
         //Therefore, in order for this to overflow more than the whole address space must be
         //contained within these two slices.
@@ -229,7 +229,7 @@ impl<'a> Seek for Cursor<'a> {
     fn tell(&mut self) -> StdResult<u64, Self::Error> {
         Ok(self.cur as u64)
     }
-    fn write_at(&mut self, buf: &[u8], pos: u64) -> IoResult<Self> {
+    fn write_at(&mut self, buf: &[u8], pos: u64) -> WriteResult<Self> {
         let out = self
             .buf
             .get_mut(pos as usize..pos as usize + buf.len())
@@ -250,7 +250,7 @@ pub enum CursorError {
 impl<'a> Write for &'a mut [u8] {
     type Error = CursorError;
     type Seekable = NotSeekable<Self>;
-    fn write(&mut self, buf: &[u8]) -> IoResult<Self> {
+    fn write(&mut self, buf: &[u8]) -> WriteResult<Self> {
         if buf.len() > self.len() {
             self.copy_from_slice(&buf[..self.len()]);
             *self = &mut [];
@@ -322,7 +322,7 @@ pub(crate) struct WriteCounter(pub u64);
 impl Write for WriteCounter {
     type Error = &'static str;
     type Seekable = NotSeekable<Self>;
-    fn write(&mut self, buf: &[u8]) -> IoResult<Self> {
+    fn write(&mut self, buf: &[u8]) -> WriteResult<Self> {
         self.0 += buf.len() as u64;
         Ok(())
     }

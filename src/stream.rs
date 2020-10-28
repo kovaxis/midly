@@ -50,19 +50,29 @@ impl<B: Buffer> MidiStream<B> {
         if let Some(byte) = u7::try_from(byte) {
             //Data byte
             if let Some(status) = self.status {
-                //Midi messages have a known length, so when a data byte beyond the fixed message
-                //length arrives, we must know to finish off the previous message and start a new
-                //one sharing the status of the previous byte (running status).
-                let len = MidiMessage::msg_length(status);
-                if len > 0 && self.data.as_slice().len() >= len {
-                    // TODO: Generate MIDI message as soon as the required length is reached, rather
-                    // than waiting until the next data byte.
-                    self.event(status, handle_ev);
-                    self.data.clear();
-                }
-                if let Err(()) = self.data.push(&[byte]) {
-                    self.status = None;
-                    self.data.clear();
+                match self.data.push(&[byte]) {
+                    Ok(()) => {
+                        //Midi messages have a known length, so when a data byte beyond the fixed
+                        //message length arrives, we must know to finish off the previous message
+                        //and start a new one sharing the status of the previous byte (running
+                        //status).
+                        //Besides, we'd like to trigger MIDI messages as soon as the necessary data
+                        //arrives.
+                        //To solve both of these issues, events are triggered as soon as their
+                        //data quota is fulfilled.
+                        //Note that if `msg_length` returns 0, this `if` will never execute, since
+                        //at this point the length of `self.data` is at least 1 (since a data byte
+                        //was just pushed).
+                        if self.data.as_slice().len() == MidiMessage::msg_length(status) {
+                            self.event(status, handle_ev);
+                            self.data.clear();
+                        }
+                    }
+                    Err(()) => {
+                        //Data for this message is too long, drop it
+                        self.status = None;
+                        self.data.clear();
+                    }
                 }
             }
         } else {

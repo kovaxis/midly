@@ -197,5 +197,6 @@ impl<T> ResultExt<T> for StdResult<T, &'static ErrorKind> {
     }
 }
 
+/// The result type used by the MIDI parser.
 pub type Result<T> = StdResult<T, Error>;
 pub(crate) use core::result::Result as StdResult;

@@ -48,7 +48,7 @@ impl<'a> TrackEvent<'a> {
         &self,
         running_status: &mut Option<u8>,
         out: &mut W,
-    ) -> IoResult<W> {
+    ) -> WriteResult<W> {
         self.delta.write_varlen(out)?;
         self.kind.write(running_status, out)?;
         Ok(())
@@ -134,7 +134,7 @@ impl<'a> TrackEventKind<'a> {
     /// `running_status` keeps track of the last MIDI status, in order to make proper use of
     /// running status. It should be shared between consecutive calls, and should initially be set
     /// to `None`.
-    fn write<W: Write>(&self, running_status: &mut Option<u8>, out: &mut W) -> IoResult<W> {
+    fn write<W: Write>(&self, running_status: &mut Option<u8>, out: &mut W) -> WriteResult<W> {
         //Running Status rules:
         // - MIDI Messages (0x80 ..= 0xEF) alter and use running status
         // - System Exclusive (0xF0) cancels and cannot use running status
@@ -173,9 +173,12 @@ impl<'a> TrackEventKind<'a> {
     ///
     /// Only channel MIDI messages and not-split SysEx messages can be converted.
     /// Meta messages and arbitrary escapes yield `None` when converted.
-    pub fn to_live(self) -> Option<LiveEvent<'a>> {
+    pub fn as_live(&self) -> Option<LiveEvent<'a>> {
         match self {
-            TrackEventKind::Midi { channel, message } => Some(LiveEvent::Midi { channel, message }),
+            TrackEventKind::Midi { channel, message } => Some(LiveEvent::Midi {
+                channel: *channel,
+                message: *message,
+            }),
             TrackEventKind::SysEx(data) => {
                 if data.last() == Some(&0xF7) {
                     let data_u7 = u7::slice_from_int(data);
@@ -328,7 +331,7 @@ impl MidiMessage {
         }
     }
     /// Write the data part of this message, not including the status.
-    pub(crate) fn write<W: Write>(&self, out: &mut W) -> IoResult<W> {
+    pub(crate) fn write<W: Write>(&self, out: &mut W) -> WriteResult<W> {
         match self {
             MidiMessage::NoteOff { key, vel } => out.write(&[key.as_int(), vel.as_int()])?,
             MidiMessage::NoteOn { key, vel } => out.write(&[key.as_int(), vel.as_int()])?,
@@ -486,7 +489,7 @@ impl<'a> MetaMessage<'a> {
             _ => MetaMessage::Unknown(type_byte, data),
         })
     }
-    fn write<W: Write>(&self, out: &mut W) -> IoResult<W> {
+    fn write<W: Write>(&self, out: &mut W) -> WriteResult<W> {
         let mut write_msg = |type_byte: u8, data: &[u8]| {
             out.write(&[type_byte])?;
             write_varlen_slice(data, out)?;

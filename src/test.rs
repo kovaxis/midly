@@ -163,7 +163,7 @@ fn time<F: FnOnce() -> R, R>(activity: &str, op: F) -> R {
     result
 }
 
-fn test_event_api(file: &str) {
+fn test_live_api(file: &str) {
     open! {file: file};
     open! {smf: [parse_bytemap] file};
     for (bytes, ev) in smf.tracks.iter().flat_map(|track| track.iter()) {
@@ -236,15 +236,13 @@ fn test_stream_api(file: &str) {
     for (bytes, ev) in smf.tracks.iter().flat_map(|track| track.iter()) {
         match ev.kind {
             TrackEventKind::Midi { channel, message } => {
-                //Write down the status byte if missing
-                if bytes[0] < 0x80 {
-                    byte_stream.push(message.status_nibble() << 4 | channel.as_int());
-                }
                 //Write down the message bytes, directly from the source bytes
                 byte_stream.extend_from_slice(bytes);
                 //Add an expected event
                 expected_evs.push(EventData {
-                    fired_at: byte_stream.len(),
+                    //Midi messages are fired as soon as the last data byte arrives, therefore the
+                    //length-1
+                    fired_at: byte_stream.len() - 1,
                     event: Ok(LiveEvent::Midi { channel, message }),
                 });
             }
@@ -387,8 +385,8 @@ macro_rules! def_tests {
                 test!($filename => parse_bytemap);
             }
             $(#[$attr])*
-            fn event_api() {
-                test_event_api($filename);
+            fn live_api() {
+                test_live_api($filename);
             }
             $(#[$attr])*
             fn stream_api() {

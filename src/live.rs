@@ -61,7 +61,7 @@ impl<'a> LiveEvent<'a> {
     ///
     /// This method can be used to write messages to be consumed by OS APIs.
     /// Also see the example in the root crate documentation.
-    pub fn write<W: Write>(&self, out: &mut W) -> IoResult<W> {
+    pub fn write<W: Write>(&self, out: &mut W) -> WriteResult<W> {
         self.write_with_running_status(&mut None, out)
     }
 
@@ -72,7 +72,7 @@ impl<'a> LiveEvent<'a> {
         &self,
         running_status: &mut Option<u8>,
         out: &mut W,
-    ) -> IoResult<W> {
+    ) -> WriteResult<W> {
         match self {
             LiveEvent::Midi { channel, message } => {
                 let status = message.status_nibble() << 4 | channel.as_int();
@@ -227,7 +227,7 @@ impl<'a> SystemCommon<'a> {
         Ok(ev)
     }
 
-    fn write<W: Write>(&self, out: &mut W) -> IoResult<W> {
+    fn write<W: Write>(&self, out: &mut W) -> WriteResult<W> {
         match self {
             SystemCommon::SysEx(data) => {
                 out.write(&[0xF0])?;
