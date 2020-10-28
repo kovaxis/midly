@@ -1,25 +1,51 @@
+//! Provides abstractions over writers, even in `no_std` environments.
+//!
+//! When the `std` feature is enabled, `IoWrap` and `SeekableWrap` provide a bridge between the
+//! `std::io` API and the `midly::io` API.
+//! Besides, `write` methods that work with `midly::io::Write` types usually provide a `write_std`
+//! variant that works with `std::io::Write` types when the `std` feature is enabled.
+
 use crate::prelude::*;
 
+/// Either `Ok(())` or the error specific to the `W` writer.
 pub type IoResult<W> = StdResult<(), <W as Write>::Error>;
 
+/// A `Write` trait available even in `no_std` environments, and with per-type errors.
 pub trait Write {
+    /// The error type specific to the writer.
     type Error;
+    /// `Self` when the type is seekable, and `NotSeekable<Self>` otherwise.
     type Seekable: Write<Error = Self::Error, Seekable = Self::Seekable> + Seek;
+
+    /// Write a slice of data to the writer.
+    ///
+    /// Should error if not all of the data could be written.
     fn write(&mut self, buf: &[u8]) -> IoResult<Self>;
+    /// Create an "invalid input"-style error from a string literal.
     fn invalid_input(msg: &'static str) -> Self::Error;
+    /// Make this writer seekable, if possible.
     fn make_seekable(&mut self) -> Option<&mut Self::Seekable> {
         None
     }
 }
 
+/// A `Seek` trait available even in `no_std` environments.
+///
+/// Not all of the `Seek` functionality is required, only the functionality required to write MIDI
+/// files.
 pub trait Seek: Write {
+    /// Where is the writer currently at.
     fn tell(&mut self) -> StdResult<u64, Self::Error>;
+    /// Write a slice of data at the given absolute position, and return to the end of the writer
+    /// afterwards.
     fn write_at(&mut self, buf: &[u8], pos: u64) -> IoResult<Self>;
 }
 
 #[derive(Copy, Clone, Debug)]
 enum Never {}
 
+/// The type used for the [`Seekable`](trait.Write.html#associatedtype.Seekable) associated type on
+/// non-seekable writers.
 #[derive(Debug)]
 pub struct NotSeekable<W> {
     _phantom: PhantomData<W>,
@@ -57,6 +83,20 @@ impl<W: Write> Seek for NotSeekable<W> {
     }
 }
 
+impl<'a, W: Write> Write for &'a mut W {
+    type Error = W::Error;
+    type Seekable = W::Seekable;
+    fn write(&mut self, buf: &[u8]) -> IoResult<W> {
+        W::write(self, buf)
+    }
+    fn invalid_input(msg: &'static str) -> W::Error {
+        W::invalid_input(msg)
+    }
+    fn make_seekable(&mut self) -> Option<&mut W::Seekable> {
+        W::make_seekable(self)
+    }
+}
+
 #[cfg(feature = "alloc")]
 impl Write for Vec<u8> {
     type Error = &'static str;
@@ -86,32 +126,76 @@ impl Seek for Vec<u8> {
     }
 }
 
+/// A seekable writer over an in-memory buffer.
+///
+/// Available even when the `std` and `alloc` features are disabled.
 pub struct Cursor<'a> {
     buf: &'a mut [u8],
     cur: usize,
 }
 impl<'a> Cursor<'a> {
-    pub fn new(slice: &mut [u8]) -> Cursor {
-        Cursor { buf: slice, cur: 0 }
-    }
-    pub fn from_parts(slice: &mut [u8], cursor: usize) -> Cursor {
-        assert!(cursor <= slice.len(), "cursor beyond the end of the buffer");
+    /// Create a new cursor located at the start of the given buffer.
+    pub fn new(buffer: &mut [u8]) -> Cursor {
         Cursor {
-            buf: slice,
+            buf: buffer,
+            cur: 0,
+        }
+    }
+    /// Create a cursor from a buffer and the cursor within it.
+    pub fn from_parts(buffer: &mut [u8], cursor: usize) -> Cursor {
+        assert!(
+            cursor <= buffer.len(),
+            "cursor beyond the end of the buffer"
+        );
+        Cursor {
+            buf: buffer,
             cur: cursor,
         }
     }
+    /// Yield the underlying buffer and the cursor within it.
+    ///
+    /// The cursor is guaranteed to be `cursor <= buffer.len()`.
     pub fn into_parts(self) -> (&'a mut [u8], usize) {
         (self.buf, self.cur)
     }
+
+    /// Get a reference to the whole underlying buffer.
     pub fn slice(&self) -> &[u8] {
         self.buf
     }
+    /// Get a mutable reference to the whole underlying buffer.
     pub fn slice_mut(&mut self) -> &mut [u8] {
         self.buf
     }
+    /// Get the position of the cursor.
     pub fn cursor(&self) -> usize {
         self.cur
+    }
+
+    /// Get a reference to the written portion of the buffer.
+    pub fn written(&self) -> &[u8] {
+        &self.buf[..self.cur]
+    }
+    /// Get a reference to the portion of the buffer that is not yet written.
+    pub fn unwritten(&self) -> &[u8] {
+        &self.buf[self.cur..]
+    }
+    /// Split the buffer into the written and unwritten parts.
+    pub fn split(&self) -> (&[u8], &[u8]) {
+        self.buf.split_at(self.cur)
+    }
+
+    /// Get a mutable reference to the written portion of the buffer.
+    pub fn written_mut(&mut self) -> &mut [u8] {
+        &mut self.buf[..self.cur]
+    }
+    /// Get a mutable reference to the portion of the buffer that is not yet written.
+    pub fn unwritten_mut(&mut self) -> &mut [u8] {
+        &mut self.buf[self.cur..]
+    }
+    /// Split the buffer into the written and unwritten parts.
+    pub fn split_mut(&mut self) -> (&mut [u8], &mut [u8]) {
+        self.buf.split_at_mut(self.cur)
     }
 }
 impl<'a> Write for Cursor<'a> {
@@ -154,8 +238,11 @@ impl<'a> Seek for Cursor<'a> {
     }
 }
 
+/// The errors that can arise when writing to an in-memory buffer.
 pub enum CursorError {
+    /// The in-memory buffer was too small.
     OutOfSpace,
+    /// The input SMF was invalid.
     InvalidInput(&'static str),
 }
 impl<'a> Write for &'a mut [u8] {
@@ -178,6 +265,9 @@ impl<'a> Write for &'a mut [u8] {
     }
 }
 
+/// Bridge between a `midly::io::Write` type and a `std::io::Write` type.
+///
+/// Always available, but only implements `midly::io::Write` when the `std` feature is enabled.
 pub struct IoWrap<T>(pub T);
 #[cfg(feature = "std")]
 impl<T: io::Write> Write for IoWrap<T> {
@@ -191,6 +281,10 @@ impl<T: io::Write> Write for IoWrap<T> {
     }
 }
 
+/// Bridge between a `midly::io::{Write, Seek}` type and a `std::io::{Write, Seek}` type.
+///
+/// Always available, but only implements `midly::io::{Write, Seek}` when the `std` feature is
+/// enabled.
 pub struct SeekableWrap<T>(pub T);
 #[cfg(feature = "std")]
 impl<T: io::Write + io::Seek> Write for SeekableWrap<T> {
@@ -219,6 +313,7 @@ impl<T: io::Write + io::Seek> Seek for SeekableWrap<T> {
     }
 }
 
+/// Counts the amount of bytes written to it, but otherwise ignores the actual bytes written.
 pub(crate) struct WriteCounter(pub u64);
 impl Write for WriteCounter {
     type Error = &'static str;

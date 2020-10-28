@@ -1,7 +1,7 @@
 //! Specific to the SMF packaging of MIDI streams.
 
 use crate::{
-    event::Event,
+    event::TrackEvent,
     prelude::*,
     primitive::{Format, Timing},
     riff,
@@ -52,12 +52,12 @@ pub struct Smf<'a> {
     /// A list of tracks within this MIDI file.
     ///
     /// Each track consists simply of a list of events (ie. there is no track metadata).
-    pub tracks: Vec<Vec<Event<'a>>>,
+    pub tracks: Vec<Vec<TrackEvent<'a>>>,
 }
 #[cfg(feature = "alloc")]
 impl Smf<'_> {
     /// Create a new `Smf` from its raw parts.
-    pub fn new(header: Header, tracks: Vec<Vec<Event>>) -> Smf {
+    pub fn new(header: Header, tracks: Vec<Vec<TrackEvent>>) -> Smf {
         Smf { header, tracks }
     }
 
@@ -96,10 +96,12 @@ impl Smf<'_> {
     }
 
     /// Encodes and writes the file to the given path.
+    ///
+    /// This function is only available with the `std` feature enabled.
     #[cfg(feature = "std")]
     pub fn save<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
         fn save_impl(smf: &Smf, path: &Path) -> io::Result<()> {
-            smf.write(&mut crate::io::IoWrap(File::create(path)?))
+            smf.write(&mut IoWrap(File::create(path)?))
         }
         save_impl(self, path.as_ref())
     }
@@ -114,12 +116,12 @@ pub struct SmfBytemap<'a> {
     /// The header of this file.
     pub header: Header,
     /// A list of tracks, along with the bytemap of their events.
-    pub tracks: Vec<Vec<(&'a [u8], Event<'a>)>>,
+    pub tracks: Vec<Vec<(&'a [u8], TrackEvent<'a>)>>,
 }
 #[cfg(feature = "alloc")]
 impl<'a> SmfBytemap<'a> {
     /// Create an `SmfBytemap` from its raw parts.
-    pub fn new(header: Header, tracks: Vec<Vec<(&'a [u8], Event<'a>)>>) -> SmfBytemap<'a> {
+    pub fn new(header: Header, tracks: Vec<Vec<(&'a [u8], TrackEvent<'a>)>>) -> SmfBytemap<'a> {
         SmfBytemap { header, tracks }
     }
 
@@ -165,7 +167,7 @@ impl<'a> SmfBytemap<'a> {
     #[cfg(feature = "std")]
     pub fn save<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
         fn save_impl(smf: &SmfBytemap, path: &Path) -> io::Result<()> {
-            smf.write(&mut crate::io::IoWrap(File::create(path)?))
+            smf.write(&mut IoWrap(File::create(path)?))
         }
         save_impl(self, path.as_ref())
     }
@@ -189,7 +191,7 @@ fn validate_smf(header: &Header, track_count_hint: u16, track_count: usize) -> R
 /// Parse a raw MIDI file lazily, yielding its header and a lazy track iterator.
 /// No allocations are made.
 ///
-/// The track iterator that is returned yield event iterators, which in turn yield concrete events.
+/// The track iterator that is returned yields event iterators, which in turn yield concrete events.
 ///
 /// This function is always available, even in `no_std` environments.
 pub fn parse(raw: &[u8]) -> Result<(Header, TrackIter)> {
@@ -237,7 +239,7 @@ pub fn write<'a, T, E, W>(header: &Header, tracks: T, out: &mut W) -> IoResult<W
 where
     T: IntoIterator<Item = E>,
     T::IntoIter: ExactSizeIterator + Clone + Send,
-    E: IntoIterator<Item = &'a Event<'a>>,
+    E: IntoIterator<Item = &'a TrackEvent<'a>>,
     E::IntoIter: Clone + Send,
     W: Write,
 {
@@ -309,17 +311,18 @@ where
 
 /// Similar to [`write`](fn.write.html), but writes to a `std::io::Write` writer instead of a
 /// `midly::io::Write` writer.
+///
 /// This function is only available with the `std` feature enabled.
 #[cfg(feature = "std")]
 pub fn write_std<'a, T, E, W>(header: &Header, tracks: T, out: W) -> io::Result<()>
 where
     T: IntoIterator<Item = E>,
     T::IntoIter: ExactSizeIterator + Clone + Send,
-    E: IntoIterator<Item = &'a Event<'a>>,
+    E: IntoIterator<Item = &'a TrackEvent<'a>>,
     E::IntoIter: Clone + Send,
     W: io::Write,
 {
-    write(header, tracks, &mut crate::io::IoWrap(out))
+    write(header, tracks, &mut IoWrap(out))
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -418,7 +421,7 @@ impl<'a> Chunk<'a> {
     /// When probing, the chunk is written twice: one to find out the length of the chunk and again
     /// to actually write the chunk contents.
     fn write_probe<W: Write>(
-        track: impl Iterator<Item = &'a Event<'a>> + Clone,
+        track: impl Iterator<Item = &'a TrackEvent<'a>> + Clone,
         out: &mut W,
     ) -> IoResult<W> {
         let mut counter = WriteCounter(0);
@@ -436,7 +439,7 @@ impl<'a> Chunk<'a> {
     /// The chunk is written once, then the writer is seeked back and the chunk length is written
     /// last.
     fn write_seek<W: Write + Seek>(
-        track: impl Iterator<Item = &'a Event<'a>>,
+        track: impl Iterator<Item = &'a TrackEvent<'a>>,
         out: &mut W,
     ) -> IoResult<W> {
         out.write(b"MTrk\0\0\0\0")?;
@@ -453,7 +456,7 @@ impl<'a> Chunk<'a> {
     /// last.
     #[cfg(feature = "alloc")]
     fn write_to_vec(
-        track: impl Iterator<Item = &'a Event<'a>>,
+        track: impl Iterator<Item = &'a TrackEvent<'a>>,
         out: &mut Vec<u8>,
     ) -> IoResult<Vec<u8>> {
         let cap = (track.size_hint().0 as f32 * BYTES_PER_EVENT) as usize;
@@ -467,7 +470,10 @@ impl<'a> Chunk<'a> {
     }
 
     /// Utility method. Iterate over the events of a track and write them out.
-    fn write_raw<W: Write>(track: impl Iterator<Item = &'a Event<'a>>, out: &mut W) -> IoResult<W> {
+    fn write_raw<W: Write>(
+        track: impl Iterator<Item = &'a TrackEvent<'a>>,
+        out: &mut W,
+    ) -> IoResult<W> {
         let mut running_status = None;
         for ev in track {
             ev.write(&mut running_status, out)?;
@@ -539,7 +545,7 @@ impl<'a> TrackIter<'a> {
     ///
     /// This function is only available with the `alloc` feature enabled.
     #[cfg(feature = "alloc")]
-    pub fn collect_events(self) -> Result<Vec<Vec<Event<'a>>>> {
+    pub fn collect_events(self) -> Result<Vec<Vec<TrackEvent<'a>>>> {
         self.generic_collect(EventIter::to_vec)
     }
 
@@ -548,7 +554,7 @@ impl<'a> TrackIter<'a> {
     ///
     /// This function is only available with the `alloc` feature enabled.
     #[cfg(feature = "alloc")]
-    pub fn collect_bytemapped(self) -> Result<Vec<Vec<(&'a [u8], Event<'a>)>>> {
+    pub fn collect_bytemapped(self) -> Result<Vec<Vec<(&'a [u8], TrackEvent<'a>)>>> {
         self.generic_collect(|events| events.bytemapped().to_vec())
     }
 
@@ -701,8 +707,8 @@ impl<'a, T: EventKind<'a>> Iterator for EventIterGeneric<'a, T> {
 
 /// An iterator over the events of a single track.
 ///
-/// This iterator is lazy, it parses events as it goes, and therefore produces `Result<Event>>`
-/// rather than `Event`.
+/// This iterator is lazy, it parses events as it goes, and therefore produces `Result<TrackEvent>>`
+/// rather than `TrackEvent`.
 ///
 /// This type is always available, even in `no_std` environments.
 #[derive(Clone, Debug)]
@@ -710,9 +716,9 @@ pub struct EventIter<'a> {
     inner: EventIterGeneric<'a, Self>,
 }
 impl<'a> EventKind<'a> for EventIter<'a> {
-    type Event = Event<'a>;
-    fn read_ev(raw: &mut &'a [u8], rs: &mut Option<u8>) -> Result<Event<'a>> {
-        Event::read(raw, rs)
+    type Event = TrackEvent<'a>;
+    fn read_ev(raw: &mut &'a [u8], rs: &mut Option<u8>) -> Result<TrackEvent<'a>> {
+        TrackEvent::read(raw, rs)
     }
 }
 impl<'a> EventIter<'a> {
@@ -753,19 +759,19 @@ impl<'a> EventIter<'a> {
         }
     }
 
-    /// Collects the remaining unparsed events into a `Vec<Event>`.
+    /// Collects the remaining unparsed events into a `Vec<TrackEvent>`.
     ///
     /// This function is a smarter version of `Iterator::collect`, as it guesses allocations and
     /// is usually optimized better than its naive counterpart.
     ///
     /// This function is only available with the `alloc` feature enabled.
     #[cfg(feature = "alloc")]
-    pub fn to_vec(self) -> Result<Vec<Event<'a>>> {
+    pub fn to_vec(self) -> Result<Vec<TrackEvent<'a>>> {
         self.inner.to_vec()
     }
 }
 impl<'a> Iterator for EventIter<'a> {
-    type Item = Result<Event<'a>>;
+    type Item = Result<TrackEvent<'a>>;
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next()
     }
@@ -775,16 +781,16 @@ impl<'a> Iterator for EventIter<'a> {
 /// each event.
 ///
 /// This iterator is lazy, it parses events as it goes, and therefore produces
-/// `Result<(&[u8], Event)>>` rather than just `(&[u8], Event)`.
+/// `Result<(&[u8], TrackEvent)>>` rather than just `(&[u8], TrackEvent)`.
 ///
 /// This type is always available, even in `no_std` environments.
 pub struct EventBytemapIter<'a> {
     inner: EventIterGeneric<'a, Self>,
 }
 impl<'a> EventKind<'a> for EventBytemapIter<'a> {
-    type Event = (&'a [u8], Event<'a>);
+    type Event = (&'a [u8], TrackEvent<'a>);
     fn read_ev(raw: &mut &'a [u8], rs: &mut Option<u8>) -> Result<Self::Event> {
-        Event::read_bytemap(raw, rs)
+        TrackEvent::read_bytemap(raw, rs)
     }
 }
 impl<'a> EventBytemapIter<'a> {
@@ -814,19 +820,30 @@ impl<'a> EventBytemapIter<'a> {
         self.inner.running_status_mut()
     }
 
-    /// Collects the remaining unparsed events into a `Vec<(&[u8], Event)>`.
+    /// Stop collecting bytemap information for any remaining events.
+    pub fn not_bytemapped(self) -> EventIter<'a> {
+        EventIter {
+            inner: EventIterGeneric {
+                raw: self.inner.raw,
+                running_status: self.inner.running_status,
+                _kind: PhantomData,
+            },
+        }
+    }
+
+    /// Collects the remaining unparsed events into a `Vec<(&[u8], TrackEvent)>`.
     ///
     /// This function is a smarter version of `Iterator::collect`, as it guesses allocations and
     /// is usually optimized better than its naive counterpart.
     ///
     /// This function is only available with the `alloc` feature enabled.
     #[cfg(feature = "alloc")]
-    pub fn to_vec(self) -> Result<Vec<(&'a [u8], Event<'a>)>> {
+    pub fn to_vec(self) -> Result<Vec<(&'a [u8], TrackEvent<'a>)>> {
         self.inner.to_vec()
     }
 }
 impl<'a> Iterator for EventBytemapIter<'a> {
-    type Item = Result<(&'a [u8], Event<'a>)>;
+    type Item = Result<(&'a [u8], TrackEvent<'a>)>;
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next()
     }

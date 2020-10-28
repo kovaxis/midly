@@ -1,47 +1,47 @@
 //! All sort of events and their parsers.
 
 use crate::{
+    live::{LiveEvent, SystemCommon},
     prelude::*,
     primitive::{read_varlen_slice, write_varlen_slice, SmpteTime},
-    stream::{LiveEvent, SystemCommon},
 };
 
 /// Represents a parsed SMF track event.
 ///
-/// Consists of a delta time with respect to the previous event and the actual MIDI event.
+/// Consists of a delta time with respect to the previous event and the actual track event.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub struct Event<'a> {
+pub struct TrackEvent<'a> {
     /// How many MIDI ticks after the previous event should this event fire off.
     pub delta: u28,
     /// The type of event along with event-specific data.
-    pub kind: EventKind<'a>,
+    pub kind: TrackEventKind<'a>,
 }
-impl<'a> Event<'a> {
-    /// Read an `Smf` track event from raw track data.
+impl<'a> TrackEvent<'a> {
+    /// Advances the slice and updates `running_status`.
     ///
-    /// The first argument is a mutable reference to a raw byte slice: the track to parse.
-    /// The bytes corresponding to this event are removed from the slice by advancing it to the
-    /// next event.
-    ///
-    /// The second argument is a mutable reference to the current "running status".
-    /// Running status allows consecutive events to share their status if there is no status change,
-    /// so running status should be shared across calls to `Event::read`.
-    pub(crate) fn read(raw: &mut &'a [u8], running_status: &mut Option<u8>) -> Result<Event<'a>> {
+    /// In case of failure the slice might be left in the middle of an event!
+    pub(crate) fn read(
+        raw: &mut &'a [u8],
+        running_status: &mut Option<u8>,
+    ) -> Result<TrackEvent<'a>> {
         let delta = u28::read_u7(raw).context(err_invalid!("failed to read event deltatime"))?;
-        let kind =
-            EventKind::read(raw, running_status).context(err_invalid!("failed to parse event"))?;
-        Ok(Event { delta, kind })
+        let kind = TrackEventKind::read(raw, running_status)
+            .context(err_invalid!("failed to parse event"))?;
+        Ok(TrackEvent { delta, kind })
     }
 
     pub(crate) fn read_bytemap(
         raw: &mut &'a [u8],
         running_status: &mut Option<u8>,
-    ) -> Result<(&'a [u8], Event<'a>)> {
+    ) -> Result<(&'a [u8], TrackEvent<'a>)> {
         let delta = u28::read_u7(raw).context(err_invalid!("failed to read event deltatime"))?;
         let old_raw = *raw;
-        let kind =
-            EventKind::read(raw, running_status).context(err_invalid!("failed to parse event"))?;
-        Ok((&old_raw[..old_raw.len() - raw.len()], Event { delta, kind }))
+        let kind = TrackEventKind::read(raw, running_status)
+            .context(err_invalid!("failed to parse event"))?;
+        Ok((
+            &old_raw[..old_raw.len() - raw.len()],
+            TrackEvent { delta, kind },
+        ))
     }
 
     pub(crate) fn write<W: Write>(
@@ -57,11 +57,13 @@ impl<'a> Event<'a> {
 
 /// Represents the different kinds of SMF events and their associated data.
 ///
-/// It notably does *not* include the timing of the event, the `Event` struct is responsible for
-/// this.
+/// It notably does *not* include the timing of the event; the `TrackEvent` struct is responsible
+/// for this.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub enum EventKind<'a> {
-    /// A standard MIDI message bound to a channel.
+pub enum TrackEventKind<'a> {
+    /// A message associated to a MIDI channel carrying musical data.
+    ///
+    /// Usually, the bulk of MIDI data is these kind of messages.
     Midi { channel: u4, message: MidiMessage },
     /// A System Exclusive message, carrying arbitrary data.
     ///
@@ -76,8 +78,8 @@ pub enum EventKind<'a> {
     /// lyrics, etc...
     Meta(MetaMessage<'a>),
 }
-impl<'a> EventKind<'a> {
-    fn read(raw: &mut &'a [u8], running_status: &mut Option<u8>) -> Result<EventKind<'a>> {
+impl<'a> TrackEventKind<'a> {
+    fn read(raw: &mut &'a [u8], running_status: &mut Option<u8>) -> Result<TrackEventKind<'a>> {
         //Read status
         let mut status = *raw.get(0).ok_or(err_invalid!("failed to read status"))?;
         if status < 0x80 {
@@ -96,23 +98,23 @@ impl<'a> EventKind<'a> {
                 *running_status = Some(status);
                 let data = MidiMessage::read_data_u8(status, raw)?;
                 let (channel, message) = MidiMessage::read(status, data);
-                EventKind::Midi { channel, message }
+                TrackEventKind::Midi { channel, message }
             }
             0xFF => {
                 *running_status = None;
-                EventKind::Meta(
+                TrackEventKind::Meta(
                     MetaMessage::read(raw).context(err_invalid!("failed to read meta event"))?,
                 )
             }
             0xF0 => {
                 *running_status = None;
-                EventKind::SysEx(
+                TrackEventKind::SysEx(
                     read_varlen_slice(raw).context(err_invalid!("failed to read sysex event"))?,
                 )
             }
             0xF7 => {
                 *running_status = None;
-                EventKind::Escape(
+                TrackEventKind::Escape(
                     read_varlen_slice(raw).context(err_invalid!("failed to read escape event"))?,
                 )
             }
@@ -132,16 +134,14 @@ impl<'a> EventKind<'a> {
     /// `running_status` keeps track of the last MIDI status, in order to make proper use of
     /// running status. It should be shared between consecutive calls, and should initially be set
     /// to `None`.
-    ///
-    /// If you wish to disable running status, pass in `&mut None` to all calls to this method.
     fn write<W: Write>(&self, running_status: &mut Option<u8>, out: &mut W) -> IoResult<W> {
         //Running Status rules:
         // - MIDI Messages (0x80 ..= 0xEF) alter and use running status
-        // - System Common (0xF0 ..= 0xF7) cancel and cannot use running status
-        // - System Realtime (0xF8 ..= 0xFE) do not alter running status and cannot use it either
+        // - System Exclusive (0xF0) cancels and cannot use running status
+        // - Escape (0xF7) cancels and cannot use running status
         // - Meta Messages (0xFF) cancel and cannot use running status
         match self {
-            EventKind::Midi { channel, message } => {
+            TrackEventKind::Midi { channel, message } => {
                 let status = message.status_nibble() << 4 | channel.as_int();
                 if Some(status) != *running_status {
                     //Explicitly write status
@@ -150,17 +150,18 @@ impl<'a> EventKind<'a> {
                 }
                 message.write(out)?;
             }
-            EventKind::SysEx(data) => {
+            TrackEventKind::SysEx(data) => {
                 *running_status = None;
                 out.write(&[0xF0])?;
                 write_varlen_slice(data, out)?;
             }
-            EventKind::Escape(data) => {
+            TrackEventKind::Escape(data) => {
                 *running_status = None;
                 out.write(&[0xF7])?;
                 write_varlen_slice(data, out)?;
             }
-            EventKind::Meta(meta) => {
+            TrackEventKind::Meta(meta) => {
+                *running_status = None;
                 out.write(&[0xFF])?;
                 meta.write(out)?;
             }
@@ -168,10 +169,14 @@ impl<'a> EventKind<'a> {
         Ok(())
     }
 
+    /// Lossy conversion from a track event to a live event.
+    ///
+    /// Only channel MIDI messages and not-split SysEx messages can be converted.
+    /// Meta messages and arbitrary escapes yield `None` when converted.
     pub fn to_live(self) -> Option<LiveEvent<'a>> {
         match self {
-            EventKind::Midi { channel, message } => Some(LiveEvent::Midi { channel, message }),
-            EventKind::SysEx(data) => {
+            TrackEventKind::Midi { channel, message } => Some(LiveEvent::Midi { channel, message }),
+            TrackEventKind::SysEx(data) => {
                 if data.last() == Some(&0xF7) {
                     let data_u7 = u7::from_int_slice(data);
                     if data_u7.len() == data.len() - 1 {
@@ -180,17 +185,17 @@ impl<'a> EventKind<'a> {
                 }
                 None
             }
-            EventKind::Escape(_data) => None,
-            EventKind::Meta(_meta) => None,
+            TrackEventKind::Escape(_data) => None,
+            TrackEventKind::Meta(_meta) => None,
         }
     }
 }
 
-/// Represents a MIDI message, not an event.
+/// Represents a MIDI message, usually associated to a MIDI channel.
 ///
-/// If reading a MIDI message from some stream, use `EventKind::read` instead and discard non-midi
-/// events.
-/// This is the correct way to handle running status.
+/// If you wish to parse a MIDI message from a slice of raw MIDI bytes, use the
+/// [`LiveEvent::parse`](live/enum.LiveEvent.html#method.parse) method instead and ignore all
+/// variants except for [`LiveEvent::Midi`](live/enum.LiveEvent.html#variant.Midi).
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum MidiMessage {
     /// Stop playing a note.
@@ -205,6 +210,9 @@ pub enum MidiMessage {
         /// The key to start playing.
         key: u7,
         /// The velocity (strength) with which to press it.
+        ///
+        /// Note that by convention a `NoteOn` message with a velocity of 0 is equivalent to a
+        /// `NoteOff`.
         vel: u7,
     },
     /// Modify the velocity of a note after it has been played.
@@ -230,25 +238,20 @@ pub enum MidiMessage {
     },
     /// Change the note velocity of a whole channel at once, without starting new notes.
     ChannelAftertouch {
-        /// The new velocity for the notes currently playing in the channel.
+        /// The new velocity for all notes currently playing in the channel.
         vel: u7,
     },
-    /// Set the pitch bend value.
+    /// Set the pitch bend value for the entire channel.
     PitchBend {
         /// The new pitch-bend value.
-        ///
-        /// A value of `0x0000` indicates full bend downwards.
-        /// A value of `0x2000` indicates no bend.
-        /// A value of `0x3FFF` indicates full bend upwards.
-        bend: u14,
+        bend: PitchBend,
     },
 }
 impl MidiMessage {
     /// Midi messages have a known length.
-    const LENGTH_BY_STATUS: [u8; 16] = [0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 2, 2, 1, 1, 2, 0];
-
     pub(crate) fn msg_length(status: u8) -> usize {
-        Self::LENGTH_BY_STATUS[(status >> 4) as usize] as usize
+        const LENGTH_BY_STATUS: [u8; 16] = [0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 2, 2, 1, 1, 2, 0];
+        LENGTH_BY_STATUS[(status >> 4) as usize] as usize
     }
 
     /// Extract the data bytes from a raw slice.
@@ -305,7 +308,7 @@ impl MidiMessage {
                 let lsb = data[0].as_int() as u16;
                 let msb = data[1].as_int() as u16;
                 MidiMessage::PitchBend {
-                    bend: u14::from(msb << 7 | lsb),
+                    bend: PitchBend(u14::from(msb << 7 | lsb)),
                 }
             }
             _ => panic!("parsed midi message before checking that status is in range"),
@@ -336,10 +339,67 @@ impl MidiMessage {
             MidiMessage::ProgramChange { program } => out.write(&[program.as_int()])?,
             MidiMessage::ChannelAftertouch { vel } => out.write(&[vel.as_int()])?,
             MidiMessage::PitchBend { bend } => {
-                out.write(&[(bend.as_int() & 0x7F) as u8, (bend.as_int() >> 7) as u8])?
+                let raw = bend.0.as_int();
+                out.write(&[(raw & 0x7F) as u8, (raw >> 7) as u8])?
             }
         }
         Ok(())
+    }
+}
+
+/// The value of a pitch bend, represented as 14 bits.
+///
+/// A value of `0x0000` indicates full bend downwards.
+/// A value of `0x2000` indicates no bend.
+/// A value of `0x3FFF` indicates full bend upwards.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct PitchBend(pub u14);
+impl PitchBend {
+    /// The minimum value of `0x0000`, indicating full bend downwards.
+    pub const fn min_raw_value() -> PitchBend {
+        PitchBend(u14::from_int_lossy(0x0000))
+    }
+    /// The middle value of `0x2000`, indicating no bend.
+    pub const fn mid_raw_value() -> PitchBend {
+        PitchBend(u14::from_int_lossy(0x2000))
+    }
+    /// The maximum value of `0x3FFF`, indicating full bend upwards.
+    pub const fn max_raw_value() -> PitchBend {
+        PitchBend(u14::from_int_lossy(0x3FFF))
+    }
+
+    /// Create a `PitchBend` value from an int in the range `[-0x2000, 0x1FFF]`.
+    ///
+    /// Integers outside this range will be clamped.
+    pub fn from_int(int: i16) -> PitchBend {
+        PitchBend(u14::from_int_lossy(
+            (int.max(-0x2000).min(0x1FFF) + 0x2000) as u16,
+        ))
+    }
+    /// Create a `PitchBend` value from a number in the range `[-1.0, 1.0)`.
+    ///
+    /// Floats outside this range will be clamped.
+    pub fn from_f32(float: f32) -> PitchBend {
+        PitchBend::from_int((float.max(-1.0).min(1.0) * 0x2000 as f32) as i16)
+    }
+    /// Create a `PitchBend` value from a number in the range `[-1.0, 1.0)`.
+    ///
+    /// Floats outside this range will be clamped.
+    pub fn from_f64(float: f64) -> PitchBend {
+        PitchBend::from_int((float.max(-1.0).min(1.0) * 0x2000 as f64) as i16)
+    }
+
+    /// Returns an int in the range `[-0x2000, 0x1FFF]`.
+    pub fn as_int(self) -> i16 {
+        self.0.as_int() as i16 - 0x2000
+    }
+    /// Returns an `f32` in the range `[-1.0, 1.0)`.
+    pub fn as_f32(self) -> f32 {
+        self.as_int() as f32 * (1.0 / 0x2000 as f32)
+    }
+    /// Returns an `f64` in the range `[-1.0, 1.0)`.
+    pub fn as_f64(self) -> f64 {
+        self.as_int() as f64 * (1.0 / 0x2000 as f64)
     }
 }
 

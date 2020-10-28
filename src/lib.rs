@@ -1,9 +1,8 @@
 //! # Overview
 //!
-//! `midly` is a Standard Midi File (SMF) parser focused on speed and flexibility, parsing
-//! multi-MB files in tenths of a second.
+//! `midly` is a full-featured MIDI parser and writer, focused on performance.
 //!
-//! Usage is as simple as:
+//! Parsing a `.mid` file can be as simple as:
 //!
 //! ```rust
 //! # #[cfg(feature = "alloc")] {
@@ -17,29 +16,15 @@
 //! # }
 //! ```
 //!
-//! The [`Smf`](struct.Smf.html) struct is the main type in the crate.
-//! See its documentation for the structure of parsed MIDI files.
+//! # Parsing Standard Midi Files (`.mid` files)
 //!
-//! # About lifetimes
+//! Parsing Standard Midi Files is usually done through the [`Smf`](struct.Smf.html) struct.
+//! (Or if working in a `no_std` environment without an allocator, through the
+//! [`parse`](fn.parse.html) function.)
 //!
-//! The `Smf` struct is used to store a parsed Standard Midi File (.mid and .midi files).
-//! Notice that it has a lifetime parameter, since it stores references to the raw file bytes in
-//! order to avoid allocations.
-//! For this reason, the byte buffer must be created separately from the `Smf` structure:
-//!
-//! ```rust
-//! # #[cfg(feature = "alloc")] {
-//! use midly::Smf;
-//!
-//! // Load bytes into a buffer
-//! let bytes = include_bytes!("../test-asset/Clementi.mid");
-//!
-//! // Parse file in a separate step
-//! let smf = Smf::parse(bytes).unwrap();
-//! # }
-//! ```
-//!
-//! When loading a file something similar has to be done:
+//! Note that most types in this crate have a lifetime parameter, because they reference the bytes
+//! in the original file to avoid allocations.
+//! For this reason, reading a file and parsing it must be done in two separate steps:
 //!
 //! ```rust
 //! # #[cfg(feature = "alloc")] {
@@ -56,7 +41,7 @@
 //!
 //! # Writing Standard Midi Files
 //!
-//! Saving SMF files is as simple as using the `Smf::save` method:
+//! Saving `.mid` files is as simple as using the `Smf::save` method:
 //!
 //! ```rust
 //! # #[cfg(feature = "std")] {
@@ -86,48 +71,93 @@
 //! # }
 //! ```
 //!
+//! # Parsing raw live MIDI messages
+//!
+//! When using an OS API such as those wrapped by [`midir`](https://docs.rs/midir),
+//! [`LiveEvent`](live/enum.LiveEvent.html) can be used to parse the raw MIDI bytes:
+//!
+//! ```rust
+//! use midly::live::LiveEvent;
+//!
+//! fn on_midi_event(bytes: &[u8]) {
+//!     let ev = LiveEvent::parse(bytes).unwrap();
+//!     match ev {
+//!         LiveEvent::Midi{channel, message} => {
+//!             println!("midi message on channel {}: {:?}", channel.as_int(), message);
+//!         }
+//!         _ => {}
+//!     }
+//! }
+//! ```
+//!
+//! # Writing raw live MIDI messages
+//!
+//! Raw MIDI message bytes can be produced for consumption by OS APIs, such as those wrapped by
+//! [`midir`](https://docs.rs/midir), through the
+//! [`LiveEvent::write`](live/enum.LiveEvent.html#method.write) method:
+//!
+//! ```rust
+//! use midly::{live::LiveEvent, MidiMessage};
+//! # fn write_midi(bytes: &[u8]) {}
+//!
+//! fn note_on(channel: u8, key: u8) {
+//!     let ev = LiveEvent::Midi {
+//!         channel: channel.into(),
+//!         message: MidiMessage::NoteOn {
+//!             key: key.into(),
+//!             vel: 127.into(),
+//!         },
+//!     };
+//! #   let mut buf = {
+//! #       #[cfg(feature = "alloc")] {
+//!     let mut buf = Vec::new();
+//! #           buf
+//! #       }
+//! #       #[cfg(not(feature = "alloc"))] {
+//! #           [0; 3]
+//! #       }
+//! #   };
+//!     ev.write(&mut buf).unwrap();
+//!     write_midi(&buf[..]);
+//! }
+//! # note_on(3, 61); note_on(2, 50); note_on(2,61);
+//! ```
+//!
 //! # About features
 //!
-//! The mode in which the crate works is configurable through the use of cargo features.
-//! Two optional features are available: `std` and `strict`.
-//! Only `std` is enabled by default.
+//! The following cargo features are available to enable or disable parts of the crate:
 //!
-//! - The `std` feature
+//! - `parallel` (enabled by default)
 //!
-//!   This feature enables the MIDI writer (which uses `std::io::Write`) and automatic
-//!   parallelization for the `Smf::parse` and `Smf::parse_with_bytemap` functions (through the
-//!   `rayon` dependency).
+//!   This feature enables the use of multiple threads when parsing large midi files.
 //!
-//!   This feature is enabled by default. Disabling this feature with `default-features = false`
-//!   will make the crate `no_std + alloc`.
+//!   Disabling this feature will remove the dependency on `rayon`.
 //!
-//! - The `strict` feature
+//! - `std` (enabled by default)
+//!
+//!   This feature enables integration with `std`, for example implementing `std::error::Error` for
+//!   [`midly::Error`](struct.Error.html), support for writing to `std::io::Write` streams, among
+//!   others.
+//!
+//!   Disabling this feature will make the crate `no_std`.
+//!
+//! - `alloc` (enabled by default)
+//!
+//!   This feature enables allocations both for ergonomics and performance.
+//!
+//!   Disabling both the `std` and the `alloc` feature will make the crate fully `no_std`, but will
+//!   reduce functionality to a minimum.
+//!   For example, the [`Smf`](struct.Smf.html) type is unavailable without the `alloc` feature.
+//!   All types that are unavailable when a feature is disabled are marked as such in their
+//!   documentation.
+//!
+//! - `strict`
 //!
 //!   By default `midly` will attempt to plow through non-standard and even obviously corrupted
 //!   files, throwing away any unreadable data, or even entire tracks in the worst scenario.
-//!   By enabling the `strict` feature the parser will reject SMF uncompliant files and do
-//!   additional checking, throwing errors of the kind `ErrorKind::Malformed` when such a
-//!   situation arises.
-//!
-//! # About generics
-//!
-//! The `Smf` type is generic over `T`, a type implementing [`TrackRepr`](trait.TrackRepr.html).
-//! This `T` indicates how should each track be represented in memory.
-//!
-//! The default is `Vec<Event>`, produced by the `Smf::parse` method, but there are also two
-//! other methods: [`Smf::parse_with_bytemap`](struct.Smf.html#method.parse_with_bytemap) and
-//! [`Smf::parse_lazy`](struct.Smf.html#method.parse_lazy).
-//! Check the documentation for these methods for more information about each.
-//!
-//! # Parsing raw MIDI streams
-//!
-//! The MIDI standard is independent from the Standard Midi File standard, even though the latter
-//! depends on the former.
-//! A raw, non-SMF MIDI streams would be a MIDI keyboard connected through USB for example.
-//!
-//! `midly` provides partial support for parsing these MIDI messages, through the
-//! [`EventKind::parse`](enum.EventKind.html#method.parse) method, however most System Common
-//! and System Realtime messages are unsupported.
+//!   By enabling the `strict` feature the parser will reject uncompliant data and do
+//!   additional checking, throwing errors of the kind
+//!   [`ErrorKind::Malformed`](enum.ErrorKind.html#variant.Malformed) when such a situation arises.
 
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 
@@ -151,43 +181,42 @@ macro_rules! ensure {
 #[macro_use]
 mod error;
 
+#[macro_use]
 mod prelude {
     pub(crate) use crate::{
         error::{ErrorKind, Result, ResultExt, StdResult},
-        io::{IoResult, Seek, Write, WriteCounter},
+        io::{IoResult, IoWrap, Seek, Write, WriteCounter},
         primitive::{u14, u24, u28, u4, u7, IntRead, IntReadBottom7, SplitChecked},
     };
     #[cfg(feature = "alloc")]
     pub(crate) use alloc::vec::Vec;
-    pub(crate) use core::{convert::TryFrom, marker::PhantomData, mem, ops};
+    pub(crate) use core::{convert::TryFrom, fmt, marker::PhantomData, mem};
     #[cfg(feature = "std")]
     pub(crate) use std::{fs::File, io, path::Path};
 
-    pub(crate) fn bit_range<T>(val: T, range: ops::Range<u32>) -> T
-    where
-        T: From<u8>
-            + ops::Shr<u32, Output = T>
-            + ops::Shl<u32, Output = T>
-            + ops::Not<Output = T>
-            + ops::BitAnd<Output = T>,
-    {
-        let mask = !((!T::from(0)) << (range.end - range.start));
-        (val >> range.start) & mask
+    macro_rules! bit_range {
+        ($val:expr, $range:expr) => {{
+            let mask = (1 << ($range.end - $range.start)) - 1;
+            ($val >> $range.start) & mask
+        }};
     }
 }
 
 mod event;
 pub mod io;
+pub mod live;
 mod primitive;
 mod riff;
 mod smf;
 pub mod stream;
 
+#[cfg(feature = "std")]
+pub use crate::smf::write_std;
 #[cfg(feature = "alloc")]
 pub use crate::smf::{Smf, SmfBytemap};
 pub use crate::{
     error::{Error, ErrorKind, Result},
-    event::{Event, EventKind, MetaMessage, MidiMessage},
+    event::{MetaMessage, MidiMessage, PitchBend, TrackEvent, TrackEventKind},
     primitive::{Format, Fps, SmpteTime, Timing},
     smf::{parse, write, EventIter, Header, TrackIter},
 };

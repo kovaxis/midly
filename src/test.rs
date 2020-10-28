@@ -1,4 +1,4 @@
-use crate::{Event, EventIter, Result as MidlyResult};
+use crate::{EventIter, Result as MidlyResult, TrackEvent};
 use std::{fs, path::Path, time::Instant};
 
 /// Open and read the content of a file.
@@ -71,7 +71,7 @@ mod parse_collect {
     #[derive(Clone, PartialEq, Eq, Debug)]
     pub struct Smf<'a> {
         pub header: crate::Header,
-        pub tracks: Vec<Vec<Event<'a>>>,
+        pub tracks: Vec<Vec<TrackEvent<'a>>>,
     }
     #[cfg(not(feature = "alloc"))]
     impl<'a> Smf<'a> {
@@ -93,7 +93,7 @@ mod parse_collect {
             )
         }
     }
-    pub fn len(_raw: &[u8], track: Vec<Event>) -> usize {
+    pub fn len(_raw: &[u8], track: Vec<TrackEvent>) -> usize {
         track.len()
     }
 }
@@ -105,7 +105,7 @@ mod parse_bytemap {
     #[derive(Clone, PartialEq, Eq, Debug)]
     pub struct Smf<'a> {
         pub header: crate::Header,
-        pub tracks: Vec<Vec<(&'a [u8], Event<'a>)>>,
+        pub tracks: Vec<Vec<(&'a [u8], TrackEvent<'a>)>>,
     }
     #[cfg(not(feature = "alloc"))]
     impl<'a> Smf<'a> {
@@ -121,7 +121,7 @@ mod parse_bytemap {
             })
         }
     }
-    pub fn len(mut raw: &[u8], track: Vec<(&[u8], Event)>) -> usize {
+    pub fn len(mut raw: &[u8], track: Vec<(&[u8], TrackEvent)>) -> usize {
         //Quick and dirty test to make sure events bytes are present in the source in order, and
         //NOT consecutive (because delta times must interrupt every single event)
         for (bytes, _ev) in track.iter() {
@@ -176,12 +176,12 @@ fn test_event_api(file: &str) {
     open! {smf: [parse_bytemap] file};
     for (bytes, ev) in smf.tracks.iter().flat_map(|track| track.iter()) {
         use crate::{
+            live::{LiveEvent, SystemCommon},
             num::u7,
-            stream::{LiveEvent, SystemCommon},
-            EventKind,
+            TrackEventKind,
         };
         match ev.kind {
-            EventKind::Midi { channel, message } => {
+            TrackEventKind::Midi { channel, message } => {
                 let mut raw_bytes;
                 let stream_ev = if bytes.first().map(|&b| b < 0x80).unwrap_or(true) {
                     raw_bytes = vec![message.status_nibble() << 4 | channel.as_int()];
@@ -192,7 +192,7 @@ fn test_event_api(file: &str) {
                 };
                 assert_eq!(stream_ev, LiveEvent::Midi { channel, message });
             }
-            EventKind::SysEx(sysex_bytes) => {
+            TrackEventKind::SysEx(sysex_bytes) => {
                 assert!(
                     sysex_bytes.last() == Some(&0xF7),
                     "cannot test fragmented sysex with event api"
@@ -211,19 +211,20 @@ fn test_event_api(file: &str) {
                     LiveEvent::Common(SystemCommon::SysEx(u7::from_int_slice(sysex_bytes)))
                 );
             }
-            EventKind::Escape(_) => {
+            TrackEventKind::Escape(_) => {
                 panic!("cannot test arbitrary escaped with event api");
             }
-            EventKind::Meta(_) => {}
+            TrackEventKind::Meta(_) => {}
         }
     }
 }
 
 fn test_stream_api(file: &str) {
     use crate::{
+        live::{LiveEvent, SystemCommon, SystemRealtime},
         num::u7,
-        stream::{LiveEvent, MidiStream, SystemCommon, SystemRealtime},
-        EventKind,
+        stream::MidiStream,
+        TrackEventKind,
     };
 
     #[derive(Debug)]
@@ -242,7 +243,7 @@ fn test_stream_api(file: &str) {
     let mut byte_stream = Vec::new();
     for (bytes, ev) in smf.tracks.iter().flat_map(|track| track.iter()) {
         match ev.kind {
-            EventKind::Midi { channel, message } => {
+            TrackEventKind::Midi { channel, message } => {
                 //Write down the status byte if missing
                 if bytes[0] < 0x80 {
                     byte_stream.push(message.status_nibble() << 4 | channel.as_int());
@@ -255,7 +256,7 @@ fn test_stream_api(file: &str) {
                     event: Ok(LiveEvent::Midi { channel, message }),
                 });
             }
-            EventKind::SysEx(data) => {
+            TrackEventKind::SysEx(data) => {
                 assert!(
                     data.iter()
                         .enumerate()
@@ -272,7 +273,7 @@ fn test_stream_api(file: &str) {
                     event: Err((data_start, data_end)),
                 });
             }
-            EventKind::Escape(data) => {
+            TrackEventKind::Escape(data) => {
                 if let Some(EventData {
                     fired_at,
                     event: Err((_data_start, data_end)),
@@ -296,7 +297,7 @@ fn test_stream_api(file: &str) {
                     panic!("cannot test arbitrary escape events");
                 }
             }
-            EventKind::Meta(_) => {}
+            TrackEventKind::Meta(_) => {}
         }
     }
     //Sprinkle bytestream with system realtime events
@@ -447,5 +448,45 @@ mod parse {
                 }
             },
         }
+    }
+
+    #[test]
+    fn default_buf() {
+        use crate::{
+            num::u7,
+            stream::{Buffer, DefaultBuffer},
+        };
+        let mut buf = DefaultBuffer::default();
+        buf.push(u7::from_int_slice(&[123, 143])).unwrap();
+        buf.push(&[]).unwrap();
+        buf.push(u7::from_int_slice(&[15])).unwrap();
+        assert_eq!(buf.as_slice(), u7::from_int_slice(&[123, 15]));
+        buf.clear();
+        buf.push(u7::from_int_slice(&[14])).unwrap();
+        assert_eq!(buf.as_slice(), &[u7::from(14)]);
+        let buf_copy = buf.clone();
+        assert_eq!(buf.push(u7::from_int_slice(&vec![0; 1024 * 1024])), Err(()));
+        assert_eq!(buf.as_slice(), buf_copy.as_slice());
+        assert_eq!(format!("{:?}", buf), format!("{:?}", buf_copy));
+    }
+
+    #[test]
+    fn stack_buf() {
+        use crate::{num::u7, stack_buffer, stream::Buffer};
+        stack_buffer! {
+            struct Buf([u8; 16 * 1024]);
+        }
+        let mut buf = Buf::new();
+        buf.push(u7::from_int_slice(&[123, 143])).unwrap();
+        buf.push(&[]).unwrap();
+        buf.push(u7::from_int_slice(&[15])).unwrap();
+        assert_eq!(buf.as_slice(), u7::from_int_slice(&[123, 15]));
+        buf.clear();
+        buf.push(u7::from_int_slice(&[14])).unwrap();
+        assert_eq!(buf.as_slice(), &[u7::from(14)]);
+        let buf_copy = buf.clone();
+        assert_eq!(buf.push(u7::from_int_slice(&vec![0; 16 * 1024])), Err(()));
+        assert_eq!(buf.as_slice(), buf_copy.as_slice());
+        assert_eq!(format!("{:?}", buf), format!("{:?}", buf_copy));
     }
 }

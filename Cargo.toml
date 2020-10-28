@@ -7,15 +7,15 @@ include = [
   "/src/*",
   "/Cargo.toml",
 ]
-description = "A pure-rust fast and flexible MIDI parser and writer"
+description = "Fast and complete MIDI parser and writer"
 repository = "https://github.com/negamartin/midly"
 readme = "README.md"
-keywords = ["parser", "audio", "midi"]
+keywords = ["parser", "audio", "midi", "no_std"]
 categories = ["multimedia", "multimedia::audio", "multimedia::encoding"]
 license = "Unlicense"
 
 [features]
-default = ["std", "parallel"]
+default = ["alloc", "std", "parallel"]
 
 # Reject corrupted or uncompliant files, even if they could be read anyway.
 #
@@ -41,4 +41,4 @@ std = ["alloc"]
 parallel = ["std", "rayon"]
 
 [dependencies]
-rayon = { version="1", optional=true }
+rayon = { version="1", optional = true }

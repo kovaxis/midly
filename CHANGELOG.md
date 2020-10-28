@@ -18,6 +18,9 @@
 - Event bytes no longer include delta-time.
 - Optimized allocations by guessing the amount of bytes per event.
 - Files without a correct header now fail early.
+- Added a `PitchBend` newtype to manipulate pitch bend values.
+- Added a `live` module that allows parsing raw MIDI event bytes.
+- Added a `stream` module to support raw MIDI stream decoding.
 
 ## 0.4
 
@@ -88,3 +91,7 @@
 - Check thoroughly which parts of the API are exposed.
 - Write docs.
 - Expose a `std::io::Write`-based write API.
+- Add `new` methods to all types to be more uniform.
+- Try to optimize reading by using a cursor instead of a naive advancing slice.
+- Revert stream to fire MIDI messages as soon as enough bytes arrive (this is pretty useful in
+    real life).

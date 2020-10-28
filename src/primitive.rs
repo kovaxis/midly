@@ -1,5 +1,5 @@
 //! Simple building-block data that can be read in one go.
-//! All are stored in a fixed size (`Sized`) representation.
+//! All primitives have a known, fixed size.
 //! Also, primitives advance the file pointer when read.
 
 use crate::prelude::*;
@@ -59,11 +59,11 @@ macro_rules! int_feature {
                 let bytes = raw.split_checked(mem::size_of::<$inner>())
                     .ok_or(err_invalid!("failed to read the expected integer"))?;
                 if cfg!(feature = "strict") {
-                    ensure!(bytes.iter().all(|byte| bit_range(*byte, 7..8)==0), err_malformed!("invalid byte with top bit set"));
+                    ensure!(bytes.iter().all(|byte| bit_range!(*byte, 7..8)==0), err_malformed!("invalid byte with top bit set"));
                 }
                 let raw = bytes.iter().fold(0, |mut acc,byte| {
                     acc <<= 7;
-                    acc |= bit_range(*byte, 0..7) as $inner;
+                    acc |= bit_range!(*byte, 0..7) as $inner;
                     acc
                 });
                 Ok(if cfg!(feature = "strict") {
@@ -98,20 +98,32 @@ macro_rules! restricted_int {
         pub struct $name($inner);
         impl From<$inner> for $name {
             /// Lossy convertion, loses top bit.
-            fn from(raw: $inner) -> Self {
-                $name (bit_range(raw, 0..$bits))
+            fn from(raw: $inner) -> $name {
+                $name::from_int_lossy(raw)
             }
         }
         impl From<$name> for $inner {
             fn from(restricted: $name) -> $inner {restricted.0}
         }
         impl $name {
+            const MASK: $inner = (1 << $bits) - 1;
+
+            /// The maximum value that this restricted integer can hold.
+            pub const fn max_value() -> $name {
+                $name (Self::MASK)
+            }
+
+            /// Creates a restricted int from its non-restricted counterpart by masking off the
+            /// extra bits.
+            pub const fn from_int_lossy(raw: $inner) -> $name {
+                $name (raw & Self::MASK)
+            }
+
             /// Returns `Some` if the raw integer is within range of the restricted integer, and
             /// `None` otherwise.
             pub fn try_from(raw: $inner) -> Option<$name> {
-                let trunc = bit_range(raw, 0..$bits);
-                if trunc==raw {
-                    Some($name(trunc))
+                if raw <= Self::MASK {
+                    Some($name(raw))
                 }else{
                     None
                 }
@@ -127,7 +139,7 @@ macro_rules! restricted_int {
             /// no out-of-range integers.
             pub fn try_from_int_slice(raw: &[$inner]) -> Option<&[$name]> {
                 for &int in raw {
-                    if Self::try_from(int).is_none() {
+                    if int > Self::MASK {
                         return None;
                     }
                 }
@@ -139,7 +151,7 @@ macro_rules! restricted_int {
             pub fn from_int_slice(raw: &[$inner]) -> &[$name] {
                 let first_oob = raw
                     .iter()
-                    .position(|&b| Self::try_from(b).is_none())
+                    .position(|&b| b > Self::MASK)
                     .unwrap_or(raw.len());
                 unsafe { mem::transmute(&raw[..first_oob]) }
             }
@@ -201,8 +213,8 @@ impl IntReadBottom7 for u28 {
                 }
             };
             int <<= 7;
-            int |= bit_range(byte, 0..7) as u32;
-            if bit_range(byte, 7..8) == 0 {
+            int |= bit_range!(byte, 0..7) as u32;
+            if bit_range!(byte, 7..8) == 0 {
                 //Since we did at max 4 reads of 7 bits each, there MUST be at max 28 bits in this int
                 //Therefore it's safe to call lossy `from`
                 return Ok(u28::from(int));
@@ -325,10 +337,10 @@ impl Timing {
     pub(crate) fn read(raw: &mut &[u8]) -> Result<Timing> {
         let raw =
             u16::read(raw).context(err_invalid!("unexpected eof when reading midi timing"))?;
-        if bit_range(raw, 15..16) != 0 {
+        if bit_range!(raw, 15..16) != 0 {
             //Timecode
-            let fps = -(bit_range(raw, 8..16) as i8);
-            let subframe = bit_range(raw, 0..8) as u8;
+            let fps = -(bit_range!(raw, 8..16) as i8);
+            let subframe = bit_range!(raw, 0..8) as u8;
             Ok(Timing::Timecode(
                 Fps::from_int(fps as u8).ok_or(err_invalid!("invalid smpte fps"))?,
                 subframe,
@@ -424,7 +436,7 @@ impl SmpteTime {
             .split_checked(5)
             .ok_or(err_invalid!("failed to read smpte time data"))?;
         let hour_fps = data[0];
-        let (hour, fps) = (bit_range(hour_fps, 0..5), bit_range(hour_fps, 5..7));
+        let (hour, fps) = (bit_range!(hour_fps, 0..5), bit_range!(hour_fps, 5..7));
         let fps = Fps::from_code(u2::from(fps));
         let minute = data[1];
         let second = data[2];
