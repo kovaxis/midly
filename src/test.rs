@@ -208,7 +208,7 @@ fn test_event_api(file: &str) {
                 let stream_ev = LiveEvent::parse(&raw_bytes).unwrap();
                 assert_eq!(
                     stream_ev,
-                    LiveEvent::Common(SystemCommon::SysEx(u7::from_int_slice(sysex_bytes)))
+                    LiveEvent::Common(SystemCommon::SysEx(u7::slice_from_int(sysex_bytes)))
                 );
             }
             TrackEventKind::Escape(_) => {
@@ -338,7 +338,7 @@ fn test_stream_api(file: &str) {
         EventData {
             event: Err((data_start, data_end)),
             ..
-        } => LiveEvent::Common(SystemCommon::SysEx(u7::from_int_slice(
+        } => LiveEvent::Common(SystemCommon::SysEx(u7::slice_from_int(
             &sysex_bytes[data_start..data_end],
         ))),
     });
@@ -457,15 +457,15 @@ mod parse {
             stream::{Buffer, DefaultBuffer},
         };
         let mut buf = DefaultBuffer::default();
-        buf.push(u7::from_int_slice(&[123, 143])).unwrap();
+        buf.push(u7::slice_from_int(&[123, 143])).unwrap();
         buf.push(&[]).unwrap();
-        buf.push(u7::from_int_slice(&[15])).unwrap();
-        assert_eq!(buf.as_slice(), u7::from_int_slice(&[123, 15]));
+        buf.push(u7::slice_from_int(&[15])).unwrap();
+        assert_eq!(buf.as_slice(), u7::slice_from_int(&[123, 15]));
         buf.clear();
-        buf.push(u7::from_int_slice(&[14])).unwrap();
+        buf.push(u7::slice_from_int(&[14])).unwrap();
         assert_eq!(buf.as_slice(), &[u7::from(14)]);
         let buf_copy = buf.clone();
-        assert_eq!(buf.push(u7::from_int_slice(&vec![0; 1024 * 1024])), Err(()));
+        assert_eq!(buf.push(u7::slice_from_int(&vec![0; 1024 * 1024])), Err(()));
         assert_eq!(buf.as_slice(), buf_copy.as_slice());
         assert_eq!(format!("{:?}", buf), format!("{:?}", buf_copy));
     }
@@ -477,15 +477,15 @@ mod parse {
             struct Buf([u8; 16 * 1024]);
         }
         let mut buf = Buf::new();
-        buf.push(u7::from_int_slice(&[123, 143])).unwrap();
+        buf.push(u7::slice_from_int(&[123, 143])).unwrap();
         buf.push(&[]).unwrap();
-        buf.push(u7::from_int_slice(&[15])).unwrap();
-        assert_eq!(buf.as_slice(), u7::from_int_slice(&[123, 15]));
+        buf.push(u7::slice_from_int(&[15])).unwrap();
+        assert_eq!(buf.as_slice(), u7::slice_from_int(&[123, 15]));
         buf.clear();
-        buf.push(u7::from_int_slice(&[14])).unwrap();
+        buf.push(u7::slice_from_int(&[14])).unwrap();
         assert_eq!(buf.as_slice(), &[u7::from(14)]);
         let buf_copy = buf.clone();
-        assert_eq!(buf.push(u7::from_int_slice(&vec![0; 16 * 1024])), Err(()));
+        assert_eq!(buf.push(u7::slice_from_int(&vec![0; 16 * 1024])), Err(()));
         assert_eq!(buf.as_slice(), buf_copy.as_slice());
         assert_eq!(format!("{:?}", buf), format!("{:?}", buf_copy));
     }

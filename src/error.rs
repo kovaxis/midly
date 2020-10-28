@@ -65,11 +65,15 @@ mod error_impl {
     }
 }
 
-/// Represents an error parsing an SMF file or MIDI stream.
+/// Represents an error while parsing an SMF file or MIDI stream.
 ///
 /// This type wraps an `ErrorKind` and includes backtrace and error chain data in debug mode.
-/// In release mode it is a newtype wrapper around `ErrorKind`, so the `Fail::cause` method
+/// In release mode it is a newtype wrapper around `ErrorKind`, so the `Error::source` method
 /// always returns `None`.
+///
+/// If the `std` feature is enabled, this type implements `std::error::Error`.
+/// Otherwise, only `Display` and `Debug` are implemented (the `source` method on the `Error` type
+/// itself is still available, though).
 ///
 /// For more information about the error policy used by `midly`, see
 /// [`ErrorKind`](enum.ErrorKind.html).
@@ -79,9 +83,6 @@ pub struct Error {
 }
 impl Error {
     /// More information about the error itself.
-    ///
-    /// To traverse the causes of the error use the `Fail` trait instead.
-    /// Note that error chains are only available in debug mode.
     pub fn kind(&self) -> ErrorKind {
         ErrorExt::kind(self)
     }
@@ -90,6 +91,8 @@ impl Error {
     ///
     /// Note that this method will always return `None` in release mode, since error chains
     /// are not tracked in release.
+    ///
+    /// This method is available even if the `std` feature is not enabled.
     pub fn source(&self) -> Option<&Error> {
         ErrorExt::source(self)
     }
@@ -145,11 +148,12 @@ pub enum ErrorKind {
     /// This kind of error is not emitted by default, only if the `strict` crate feature is
     /// enabled.
     ///
-    /// Ignoring these errors can cause whole tracks to be skipped.
+    /// Ignoring these errors (if the `strict` feature is disabled) can cause whole tracks to be
+    /// dropped.
     Malformed(&'static str),
 }
 impl ErrorKind {
-    /// Get the informative message on what exact part of the SMF format was not respected.
+    /// Get the informative message on what exact part of the MIDI format was not respected.
     pub fn message(&self) -> &'static str {
         match *self {
             ErrorKind::Invalid(msg) => msg,
@@ -179,7 +183,7 @@ macro_rules! err_malformed {
     }};
 }
 
-pub trait ResultExt<T> {
+pub(crate) trait ResultExt<T> {
     fn context(self, ctx: &'static ErrorKind) -> StdResult<T, Error>;
 }
 impl<T> ResultExt<T> for StdResult<T, Error> {
@@ -194,4 +198,4 @@ impl<T> ResultExt<T> for StdResult<T, &'static ErrorKind> {
 }
 
 pub type Result<T> = StdResult<T, Error>;
-pub use core::result::Result as StdResult;
+pub(crate) use core::result::Result as StdResult;

@@ -107,6 +107,12 @@ impl Smf<'_> {
     }
 }
 
+/// A track, represented as a `Vec` of events along with their originating bytes.
+///
+/// This type alias is only available with the `alloc` feature enabled.
+#[cfg(feature = "alloc")]
+pub type BytemappedTrack<'a> = Vec<(&'a [u8], TrackEvent<'a>)>;
+
 /// A `.mid` Standard Midi File, but keeps a mapping to the raw bytes that make up each event.
 ///
 /// This type is only available with the `alloc` feature enabled.
@@ -116,7 +122,7 @@ pub struct SmfBytemap<'a> {
     /// The header of this file.
     pub header: Header,
     /// A list of tracks, along with the bytemap of their events.
-    pub tracks: Vec<Vec<(&'a [u8], TrackEvent<'a>)>>,
+    pub tracks: Vec<BytemappedTrack<'a>>,
 }
 #[cfg(feature = "alloc")]
 impl<'a> SmfBytemap<'a> {
@@ -272,7 +278,7 @@ where
 
             //Write down the tracks sequentially and in order
             for result in track_chunks {
-                let track_chunk = result.map_err(|msg| W::invalid_input(msg))?;
+                let track_chunk = result.map_err(W::invalid_input)?;
                 out.write(&track_chunk)?;
             }
             return Ok(());
@@ -371,7 +377,7 @@ impl<'a> Chunk<'a> {
     /// If we're *exactly* at EOF (slice length 0), returns a None signalling no more chunks.
     fn read(raw: &mut &'a [u8]) -> Result<Option<Chunk<'a>>> {
         Ok(loop {
-            if raw.len() == 0 {
+            if raw.is_empty() {
                 break None;
             }
             let id = raw
@@ -546,7 +552,7 @@ impl<'a> TrackIter<'a> {
     /// This function is only available with the `alloc` feature enabled.
     #[cfg(feature = "alloc")]
     pub fn collect_events(self) -> Result<Vec<Vec<TrackEvent<'a>>>> {
-        self.generic_collect(EventIter::to_vec)
+        self.generic_collect(EventIter::into_vec)
     }
 
     /// Parse and collect the remaining unparsed tracks into a `Vec` of tracks, keeping a mapping
@@ -554,8 +560,8 @@ impl<'a> TrackIter<'a> {
     ///
     /// This function is only available with the `alloc` feature enabled.
     #[cfg(feature = "alloc")]
-    pub fn collect_bytemapped(self) -> Result<Vec<Vec<(&'a [u8], TrackEvent<'a>)>>> {
-        self.generic_collect(|events| events.bytemapped().to_vec())
+    pub fn collect_bytemapped(self) -> Result<Vec<BytemappedTrack<'a>>> {
+        self.generic_collect(|events| events.bytemapped().into_vec())
     }
 
     #[cfg(feature = "alloc")]
@@ -608,11 +614,7 @@ impl<'a> Iterator for TrackIter<'a> {
                     //Failed to read chunk
                     Err(err) => {
                         if cfg!(feature = "strict") {
-                            break Some(
-                                Err(err)
-                                    .context(err_malformed!("invalid chunk"))
-                                    .map_err(|err| err.into()),
-                            );
+                            break Some(Err(err).context(err_malformed!("invalid chunk")));
                         } else {
                             //Ignore invalid chunk
                         }
@@ -665,9 +667,9 @@ impl<'a, T: EventKind<'a>> EventIterGeneric<'a, T> {
     }
 
     #[cfg(feature = "alloc")]
-    fn to_vec(mut self) -> Result<Vec<T::Event>> {
+    fn into_vec(mut self) -> Result<Vec<T::Event>> {
         let mut events = Vec::with_capacity(self.estimate_bytes());
-        while self.raw.len() > 0 {
+        while !self.raw.is_empty() {
             match T::read_ev(&mut self.raw, &mut self.running_status) {
                 Ok(ev) => events.push(ev),
                 Err(err) => {
@@ -687,7 +689,7 @@ impl<'a, T: EventKind<'a>> EventIterGeneric<'a, T> {
 impl<'a, T: EventKind<'a>> Iterator for EventIterGeneric<'a, T> {
     type Item = Result<T::Event>;
     fn next(&mut self) -> Option<Self::Item> {
-        if self.raw.len() > 0 {
+        if !self.raw.is_empty() {
             match T::read_ev(&mut self.raw, &mut self.running_status) {
                 Ok(ev) => Some(Ok(ev)),
                 Err(err) => {
@@ -766,8 +768,8 @@ impl<'a> EventIter<'a> {
     ///
     /// This function is only available with the `alloc` feature enabled.
     #[cfg(feature = "alloc")]
-    pub fn to_vec(self) -> Result<Vec<TrackEvent<'a>>> {
-        self.inner.to_vec()
+    pub fn into_vec(self) -> Result<Vec<TrackEvent<'a>>> {
+        self.inner.into_vec()
     }
 }
 impl<'a> Iterator for EventIter<'a> {
@@ -838,8 +840,8 @@ impl<'a> EventBytemapIter<'a> {
     ///
     /// This function is only available with the `alloc` feature enabled.
     #[cfg(feature = "alloc")]
-    pub fn to_vec(self) -> Result<Vec<(&'a [u8], TrackEvent<'a>)>> {
-        self.inner.to_vec()
+    pub fn into_vec(self) -> Result<Vec<(&'a [u8], TrackEvent<'a>)>> {
+        self.inner.into_vec()
     }
 }
 impl<'a> Iterator for EventBytemapIter<'a> {

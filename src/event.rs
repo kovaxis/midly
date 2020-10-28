@@ -178,7 +178,7 @@ impl<'a> TrackEventKind<'a> {
             TrackEventKind::Midi { channel, message } => Some(LiveEvent::Midi { channel, message }),
             TrackEventKind::SysEx(data) => {
                 if data.last() == Some(&0xF7) {
-                    let data_u7 = u7::from_int_slice(data);
+                    let data_u7 = u7::slice_from_int(data);
                     if data_u7.len() == data.len() - 1 {
                         return Some(LiveEvent::Common(SystemCommon::SysEx(data_u7)));
                     }
@@ -444,6 +444,7 @@ pub enum MetaMessage<'a> {
     Unknown(u8, &'a [u8]),
 }
 impl<'a> MetaMessage<'a> {
+    #[allow(clippy::len_zero)]
     fn read(raw: &mut &'a [u8]) -> Result<MetaMessage<'a>> {
         let type_byte = u8::read(raw).context(err_invalid!("failed to read meta message type"))?;
         let mut data =

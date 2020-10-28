@@ -137,34 +137,35 @@ macro_rules! restricted_int {
 
             /// Cast a slice of raw integers to a slice of restricted integers, only if there are
             /// no out-of-range integers.
-            pub fn try_from_int_slice(raw: &[$inner]) -> Option<&[$name]> {
+            pub fn slice_try_from_int(raw: &[$inner]) -> Option<&[$name]> {
                 for &int in raw {
                     if int > Self::MASK {
                         return None;
                     }
                 }
-                unsafe { Some(mem::transmute(raw)) }
+                unsafe { Some( &*( raw as *const [$inner] as *const [$name] ) ) }
             }
 
             /// Cast a slice of raw integers to a slice of restricted integers.
             /// The slice is truncated to the first out-of-range byte, if any exist.
-            pub fn from_int_slice(raw: &[$inner]) -> &[$name] {
+            pub fn slice_from_int(raw: &[$inner]) -> &[$name] {
                 let first_oob = raw
                     .iter()
                     .position(|&b| b > Self::MASK)
                     .unwrap_or(raw.len());
-                unsafe { mem::transmute(&raw[..first_oob]) }
+                let safe = &raw[..first_oob];
+                unsafe { &*( safe as *const [$inner] as *const [$name] ) }
             }
 
             /// Cast a slice of restricted integers to the corresponding raw integers.
             ///
             /// All integers are guaranteed to be within range of the restricted int.
-            pub fn as_int_slice(slice: &[$name]) -> &[$inner] {
-                unsafe { mem::transmute(slice) }
+            pub fn slice_as_int(slice: &[$name]) -> &[$inner] {
+                unsafe { &*(slice as *const [$name] as *const [$inner]) }
             }
 
             #[allow(dead_code)]
-            pub(crate) fn check_int(raw: $inner) -> StdResult<Self, &'static ErrorKind> {
+            pub(crate) fn check_int(raw: $inner) -> StdResult<$name, &'static ErrorKind> {
                 Self::try_from(raw).ok_or_else(
                     || err_invalid!("invalid integer with top bits set")
                 )
@@ -275,7 +276,7 @@ pub(crate) fn read_varlen_slice<'a>(raw: &mut &'a [u8]) -> Result<&'a [u8]> {
 pub(crate) fn write_varlen_slice<W: Write>(slice: &[u8], out: &mut W) -> IoResult<W> {
     let len = u32::try_from(slice.len())
         .ok()
-        .and_then(|len| u28::try_from(len))
+        .and_then(u28::try_from)
         .ok_or_else(|| W::invalid_input("varlen slice exceeds 28 bits"))?;
     len.write_varlen(out)?;
     out.write(slice)?;

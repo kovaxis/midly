@@ -38,7 +38,7 @@ impl<'a> LiveEvent<'a> {
         let status = raw
             .split_checked(1)
             .ok_or_else(|| err_invalid!("no status byte"))?[0];
-        let data = u7::from_int_slice(raw);
+        let data = u7::slice_from_int(raw);
         Self::read(status, data)
     }
 
@@ -180,6 +180,7 @@ pub enum SystemCommon<'a> {
     Undefined(u8, &'a [u7]),
 }
 impl<'a> SystemCommon<'a> {
+    #[allow(clippy::len_zero)]
     fn read(status: u8, data: &'a [u7]) -> Result<SystemCommon<'a>> {
         let ev = match status {
             0xF0 => {
@@ -201,7 +202,7 @@ impl<'a> SystemCommon<'a> {
             }
             0xF3 if data.len() >= 1 => {
                 //Song Select
-                SystemCommon::SongSelect(u7::from(data[0]))
+                SystemCommon::SongSelect(data[0])
             }
             0xF6 => {
                 //Tune Request
@@ -224,7 +225,7 @@ impl<'a> SystemCommon<'a> {
         match self {
             SystemCommon::SysEx(data) => {
                 out.write(&[0xF0])?;
-                out.write(u7::as_int_slice(data))?;
+                out.write(u7::slice_as_int(data))?;
                 out.write(&[0xF7])
             }
             SystemCommon::MidiTimeCodeQuarterFrame(msgtype, data) => {
@@ -237,7 +238,7 @@ impl<'a> SystemCommon<'a> {
             SystemCommon::TuneRequest => out.write(&[0xF6]),
             SystemCommon::Undefined(status, data) => {
                 out.write(&[*status])?;
-                out.write(u7::as_int_slice(data))
+                out.write(u7::slice_as_int(data))
             }
         }
     }
@@ -277,7 +278,7 @@ impl MtcQuarterFrameMessage {
             HoursHigh => 7,
         }
     }
-    fn from_code(code: u8) -> Option<Self> {
+    fn from_code(code: u8) -> Option<MtcQuarterFrameMessage> {
         use MtcQuarterFrameMessage::*;
         Some(match code {
             0 => FramesLow,

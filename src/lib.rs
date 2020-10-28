@@ -18,12 +18,12 @@
 //!
 //! # Parsing Standard Midi Files (`.mid` files)
 //!
-//! Parsing Standard Midi Files is usually done through the [`Smf`](struct.Smf.html) struct.
-//! (Or if working in a `no_std` environment without an allocator, through the
-//! [`parse`](fn.parse.html) function.)
+//! Parsing Standard Midi Files is usually done through the [`Smf`](struct.Smf.html) struct (or if
+//! working in a `no_std` environment without an allocator, through the [`parse`](fn.parse.html)
+//! function).
 //!
 //! Note that most types in this crate have a lifetime parameter, because they reference the bytes
-//! in the original file to avoid allocations.
+//! in the original file (in order to avoid allocations).
 //! For this reason, reading a file and parsing it must be done in two separate steps:
 //!
 //! ```rust
@@ -73,7 +73,7 @@
 //!
 //! # Parsing raw live MIDI messages
 //!
-//! When using an OS API such as those wrapped by [`midir`](https://docs.rs/midir),
+//! When using an OS API such as [`midir`](https://docs.rs/midir),
 //! [`LiveEvent`](live/enum.LiveEvent.html) can be used to parse the raw MIDI bytes:
 //!
 //! ```rust
@@ -92,7 +92,7 @@
 //!
 //! # Writing raw live MIDI messages
 //!
-//! Raw MIDI message bytes can be produced for consumption by OS APIs, such as those wrapped by
+//! Raw MIDI message bytes can be produced for consumption by OS APIs, such as
 //! [`midir`](https://docs.rs/midir), through the
 //! [`LiveEvent::write`](live/enum.LiveEvent.html#method.write) method:
 //!
@@ -213,7 +213,7 @@ pub mod stream;
 #[cfg(feature = "std")]
 pub use crate::smf::write_std;
 #[cfg(feature = "alloc")]
-pub use crate::smf::{Smf, SmfBytemap};
+pub use crate::smf::{BytemappedTrack, Smf, SmfBytemap};
 pub use crate::{
     error::{Error, ErrorKind, Result},
     event::{MetaMessage, MidiMessage, PitchBend, TrackEvent, TrackEventKind},
