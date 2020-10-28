@@ -22,6 +22,9 @@
 - Added a `live` module that allows parsing raw MIDI event bytes.
 - Added a `stream` module to support raw MIDI stream decoding.
 - All types now implement `Debug`, and all data types implement `Hash`.
+- `Smf::new` no longer returns an error, and creates an empty `Smf` with no tracks. To create an
+    `Smf` with prebuilt tracks use `Smf { header, tracks }` construction.
+- Added `Arena` to make track construction more ergonomic.
 
 ## 0.4
 

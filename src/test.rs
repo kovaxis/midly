@@ -479,4 +479,25 @@ mod parse {
         assert_eq!(buf.as_slice(), buf_copy.as_slice());
         assert_eq!(format!("{:?}", buf), format!("{:?}", buf_copy));
     }
+
+    #[test]
+    fn stable_arena() {
+        let arena = crate::Arena::new();
+        let mut string = String::new();
+        string.push_str("hello");
+        let hello = arena.add(string.as_bytes());
+        string.push_str(" world");
+        let helloworld = arena.add(string.as_bytes());
+        string.truncate(4);
+        string.push_str("fire");
+        let hellfire = arena.add(string.as_bytes());
+        let hellsung = arena.add(string.as_bytes());
+        hellsung.copy_from_slice(b"hellsung");
+        drop(string);
+        println!("hello: \"{}\"", String::from_utf8_lossy(hello));
+        println!("helloworld: \"{}\"", String::from_utf8_lossy(helloworld));
+        println!("hellfire: \"{}\"", String::from_utf8_lossy(hellfire));
+        println!("hellsung: \"{}\"", String::from_utf8_lossy(hellsung));
+        drop(arena);
+    }
 }

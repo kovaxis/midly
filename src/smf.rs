@@ -63,10 +63,13 @@ pub struct Smf<'a> {
     pub tracks: Vec<Track<'a>>,
 }
 #[cfg(feature = "alloc")]
-impl Smf<'_> {
-    /// Create a new `Smf` from its raw parts.
-    pub fn new(header: Header, tracks: Vec<Track>) -> Smf {
-        Smf { header, tracks }
+impl<'a> Smf<'a> {
+    /// Create a new empty `Smf` with zero tracks, using the given header.
+    pub fn new(header: Header) -> Smf<'a> {
+        Smf {
+            header,
+            tracks: vec![],
+        }
     }
 
     /// Parse a `.mid` Standard Midi File from its raw bytes.
@@ -134,9 +137,12 @@ pub struct SmfBytemap<'a> {
 }
 #[cfg(feature = "alloc")]
 impl<'a> SmfBytemap<'a> {
-    /// Create an `SmfBytemap` from its raw parts.
-    pub fn new(header: Header, tracks: Vec<Vec<(&'a [u8], TrackEvent<'a>)>>) -> SmfBytemap<'a> {
-        SmfBytemap { header, tracks }
+    /// Create a new empty `SmfBytemap` with zero tracks, using the given header.
+    pub fn new(header: Header) -> SmfBytemap<'a> {
+        SmfBytemap {
+            header,
+            tracks: vec![],
+        }
     }
 
     /// Parse a Standard Midi File from its raw bytes, keeping a map to the original bytes that

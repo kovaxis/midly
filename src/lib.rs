@@ -205,6 +205,7 @@ mod prelude {
     }
 }
 
+mod arena;
 mod event;
 pub mod io;
 pub mod live;
@@ -216,7 +217,10 @@ pub mod stream;
 #[cfg(feature = "std")]
 pub use crate::smf::write_std;
 #[cfg(feature = "alloc")]
-pub use crate::smf::{BytemappedTrack, Smf, SmfBytemap};
+pub use crate::{
+    arena::Arena,
+    smf::{BytemappedTrack, Smf, SmfBytemap},
+};
 pub use crate::{
     error::{Error, ErrorKind, Result},
     event::{MetaMessage, MidiMessage, PitchBend, TrackEvent, TrackEventKind},

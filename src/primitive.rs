@@ -143,18 +143,66 @@ macro_rules! restricted_int {
                         return None;
                     }
                 }
-                unsafe { Some( &*( raw as *const [$inner] as *const [$name] ) ) }
+                unsafe {
+                    Some(Self::slice_from_int_unchecked(raw))
+                }
             }
 
             /// Cast a slice of raw integers to a slice of restricted integers.
-            /// The slice is truncated to the first out-of-range byte, if any exist.
+            ///
+            /// The slice is truncated up to the first out-of-range integer, if there is any.
             pub fn slice_from_int(raw: &[$inner]) -> &[$name] {
                 let first_oob = raw
                     .iter()
                     .position(|&b| b > Self::MASK)
                     .unwrap_or(raw.len());
-                let safe = &raw[..first_oob];
-                unsafe { &*( safe as *const [$inner] as *const [$name] ) }
+                unsafe {
+                    Self::slice_from_int_unchecked(&raw[..first_oob])
+                }
+            }
+
+            /// Cast a slice of raw integers to a slice of restricted integers.
+            ///
+            /// # Safety
+            ///
+            /// The input slice must not contain any out-of-range integers.
+            pub unsafe fn slice_from_int_unchecked(raw: &[$inner]) -> &[$name] {
+                &*( raw as *const [$inner] as *const [$name] )
+            }
+
+            /// Cast a slice of mutable raw integers to a slice of mutable restricted integers, only
+            /// if there are no out-of-range integers.
+            pub fn slice_try_from_int_mut(raw: &mut [$inner]) -> Option<&mut [$name]> {
+                for &int in raw.iter() {
+                    if int > Self::MASK {
+                        return None;
+                    }
+                }
+                unsafe {
+                    Some(Self::slice_from_int_unchecked_mut(raw))
+                }
+            }
+
+            /// Cast a slice of mutable raw integers to a slice of mutable restricted integers.
+            ///
+            /// The slice is truncated up to the first out-of-range integer, if there is any.
+            pub fn slice_from_int_mut(raw: &mut [$inner]) -> &mut [$name] {
+                let first_oob = raw
+                    .iter()
+                    .position(|&b| b > Self::MASK)
+                    .unwrap_or(raw.len());
+                unsafe {
+                    Self::slice_from_int_unchecked_mut(&mut raw[..first_oob])
+                }
+            }
+
+            /// Cast a slice of mutable raw integers to a slice of mutable restricted integers.
+            ///
+            /// # Safety
+            ///
+            /// The input slice must not contain any out-of-range integers.
+            pub unsafe fn slice_from_int_unchecked_mut(raw: &mut [$inner]) -> &mut [$name] {
+                &mut *( raw as *mut [$inner] as *mut [$name] )
             }
 
             /// Cast a slice of restricted integers to the corresponding raw integers.
