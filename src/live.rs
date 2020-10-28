@@ -20,7 +20,7 @@ use crate::{event::MidiMessage, prelude::*};
 /// [`TrackEvent`](../struct.TrackEvent.html)s stored in a `.mid` file.
 ///
 /// See the [`live`](index.html) module for more information.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum LiveEvent<'a> {
     /// A MIDI message associated with a channel, carrying musical data.
     Midi { channel: u4, message: MidiMessage },
@@ -94,6 +94,9 @@ impl<'a> LiveEvent<'a> {
     }
 
     /// Write a standalone message to the given `std::io::Write` output.
+    ///
+    /// This method is only available with the `std` feature enabled.
+    #[cfg(feature = "std")]
     pub fn write_std<W: io::Write>(&self, out: W) -> io::Result<()> {
         self.write(&mut IoWrap(out))
     }
@@ -101,6 +104,9 @@ impl<'a> LiveEvent<'a> {
     /// Write a message, skipping the status if it shares the status with the previous message.
     ///
     /// Note that it's usually discouraged to feed messages with running status to OS APIs.
+    ///
+    /// This method is only available with the `std` feature enabled.
+    #[cfg(feature = "std")]
     pub fn write_std_with_running_status<W: io::Write>(
         &self,
         running_status: &mut Option<u8>,
@@ -113,7 +119,7 @@ impl<'a> LiveEvent<'a> {
 /// System Realtime messages are one-byte messages that only occur within live MIDI streams.
 /// They are usually time-sensitive, get top priority and can even be transmitted in between other
 /// messages.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum SystemRealtime {
     /// If sent, they should be sent 24 times per quarter note.
     TimingClock,
@@ -161,7 +167,7 @@ impl SystemRealtime {
 }
 
 /// A "system common event", as defined by the MIDI spec.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum SystemCommon<'a> {
     /// A system-exclusive event.
     ///
@@ -245,7 +251,7 @@ impl<'a> SystemCommon<'a> {
 }
 
 /// The different kinds of info a Midi Time Code Quarter Frame message can carry.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum MtcQuarterFrameMessage {
     /// The low nibble of the frame count.
     FramesLow,

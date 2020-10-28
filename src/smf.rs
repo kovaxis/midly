@@ -7,21 +7,26 @@ use crate::{
     riff,
 };
 
-/// How many bytes per event to estimate when allocating memory for events.
+/// How many events per byte to estimate when allocating memory for events while parsing.
 ///
-/// A value that is too large (ie. too few bytes/event), will underallocate, while a value that is
-/// too small (ie. too many bytes/event) will overallocate.
+/// A value that is too large (ie. too few bytes/event), will overallocate, while a value that is
+/// too small (ie. too many bytes/event) will underallocate.
 ///
 /// Usually, since memory is cheap it's better to overallocate, since reallocating the buffer may
 /// result in costly memory moves.
+/// This means that it's better to err on the large side (too few bytes/event).
 ///
 /// Real-world tests show that without running status, the average is a little above 4 bytes/event,
 /// and with running status enabled it's a little above 3 bytes/event.
 /// This makes sense, since it's DeltaTime [+ Status] + Key + Velocity for NoteOn and NoteOff
 /// events, which should make up the bulk of most MIDI files.
-const EVENTS_PER_BYTE: f32 = 1.0 / 3.0;
+///
+/// Erring on the large side for events/byte (erring on the small side for bytes/event), we can
+/// approximate to 3 bytes/event.
+#[cfg(feature = "alloc")]
+const BYTES_TO_EVENTS: f32 = 1.0 / 3.0;
 
-/// How many events per byte to estimate when allocating memory for event data.
+/// How many bytes per event to estimate when allocating memory when writing.
 ///
 /// A value that is too large will overallocate space for bytes, while a value that's too small
 /// will underallocate bytes.
@@ -31,7 +36,7 @@ const EVENTS_PER_BYTE: f32 = 1.0 / 3.0;
 /// because they contain text. However these tracks are small enough that reallocating doesn't
 /// matter too much).
 #[cfg(feature = "alloc")]
-const BYTES_PER_EVENT: f32 = 3.4;
+const EVENTS_TO_BYTES: f32 = 3.4;
 
 /// How many bytes must a MIDI body have in order to enable multithreading.
 ///
@@ -45,7 +50,7 @@ const PARALLEL_ENABLE_THRESHOLD: usize = 3 * 1024;
 /// This type is only available with the `alloc` feature enabled.
 /// If you're looking for a fully `no_std` alternative, see the [`parse`](fn.parse.html) function.
 #[cfg(feature = "alloc")]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct Smf<'a> {
     /// The header of this MIDI file, indicating tempo information and track format.
     pub header: Header,
@@ -117,7 +122,7 @@ pub type BytemappedTrack<'a> = Vec<(&'a [u8], TrackEvent<'a>)>;
 ///
 /// This type is only available with the `alloc` feature enabled.
 #[cfg(feature = "alloc")]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct SmfBytemap<'a> {
     /// The header of this file.
     pub header: Header,
@@ -261,7 +266,7 @@ where
             .clone()
             .map(|track| track.into_iter().size_hint().0)
             .sum::<usize>();
-        if (event_count as f32 * BYTES_PER_EVENT) > PARALLEL_ENABLE_THRESHOLD as f32 {
+        if (event_count as f32 * EVENTS_TO_BYTES) > PARALLEL_ENABLE_THRESHOLD as f32 {
             use rayon::prelude::*;
 
             //Write out the tracks in parallel into several different buffers
@@ -303,13 +308,14 @@ where
             for track in tracks {
                 Chunk::write_seek(track, out)?;
             }
-        } else {
-            //Last resort: do probe-writing.
-            //Two passes are done: one to find out the size of the chunk and another to actually
-            //write the chunk.
-            for track in tracks {
-                Chunk::write_probe(track, out)?;
-            }
+            return Ok(());
+        }
+
+        //Last resort: do probe-writing.
+        //Two passes are done: one to find out the size of the chunk and another to actually
+        //write the chunk.
+        for track in tracks {
+            Chunk::write_probe(track, out)?;
         }
         Ok(())
     }
@@ -331,7 +337,7 @@ where
     write(header, tracks, &mut IoWrap(out))
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 struct ChunkIter<'a> {
     /// Starts at the current index, ends at EOF.
     raw: &'a [u8],
@@ -465,7 +471,7 @@ impl<'a> Chunk<'a> {
         track: impl Iterator<Item = &'a TrackEvent<'a>>,
         out: &mut Vec<u8>,
     ) -> IoResult<Vec<u8>> {
-        let cap = (track.size_hint().0 as f32 * BYTES_PER_EVENT) as usize;
+        let cap = (track.size_hint().0 as f32 * EVENTS_TO_BYTES) as usize;
         out.clear();
         out.reserve(8 + cap);
         out.extend_from_slice(b"MTrk\0\0\0\0");
@@ -475,7 +481,7 @@ impl<'a> Chunk<'a> {
         Ok(())
     }
 
-    /// Utility method. Iterate over the events of a track and write them out.
+    /// Auxiliary method. Iterate over the events of a track and write them out.
     fn write_raw<W: Write>(
         track: impl Iterator<Item = &'a TrackEvent<'a>>,
         out: &mut W,
@@ -487,7 +493,7 @@ impl<'a> Chunk<'a> {
         Ok(())
     }
 
-    /// Utility method. Given an arbitrary-width length, fit it into a 32-bit big-endian integer,
+    /// Auxiliary method. Given an arbitrary-width length, fit it into a 32-bit big-endian integer,
     /// reporting an error if it does not fit.
     fn check_len<W, T>(len: T) -> StdResult<[u8; 4], W::Error>
     where
@@ -501,7 +507,7 @@ impl<'a> Chunk<'a> {
 }
 
 /// A MIDI file header, indicating metadata about the file.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub struct Header {
     /// Information about how should the tracks be laid out when playing them back.
     pub format: Format,
@@ -537,6 +543,7 @@ impl Header {
 /// An iterator over all *tracks* in a Standard Midi File.
 ///
 /// This type is always available, even in `no_std` environments.
+#[derive(Clone, Debug)]
 pub struct TrackIter<'a> {
     chunks: ChunkIter<'a>,
     track_count_hint: u16,
@@ -662,13 +669,14 @@ impl<'a, T: EventKind<'a>> EventIterGeneric<'a, T> {
         &mut self.running_status
     }
 
-    fn estimate_bytes(&self) -> usize {
-        (self.raw.len() as f32 * EVENTS_PER_BYTE) as usize
+    #[cfg(feature = "alloc")]
+    fn estimate_events(&self) -> usize {
+        (self.raw.len() as f32 * BYTES_TO_EVENTS) as usize
     }
 
     #[cfg(feature = "alloc")]
     fn into_vec(mut self) -> Result<Vec<T::Event>> {
-        let mut events = Vec::with_capacity(self.estimate_bytes());
+        let mut events = Vec::with_capacity(self.estimate_events());
         while !self.raw.is_empty() {
             match T::read_ev(&mut self.raw, &mut self.running_status) {
                 Ok(ev) => events.push(ev),
@@ -786,6 +794,7 @@ impl<'a> Iterator for EventIter<'a> {
 /// `Result<(&[u8], TrackEvent)>>` rather than just `(&[u8], TrackEvent)`.
 ///
 /// This type is always available, even in `no_std` environments.
+#[derive(Clone, Debug)]
 pub struct EventBytemapIter<'a> {
     inner: EventIterGeneric<'a, Self>,
 }

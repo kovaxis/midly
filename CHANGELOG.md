@@ -21,6 +21,7 @@
 - Added a `PitchBend` newtype to manipulate pitch bend values.
 - Added a `live` module that allows parsing raw MIDI event bytes.
 - Added a `stream` module to support raw MIDI stream decoding.
+- All types now implement `Debug`, and all data types implement `Hash`.
 
 ## 0.4
 

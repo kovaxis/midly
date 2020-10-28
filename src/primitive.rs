@@ -92,7 +92,7 @@ macro_rules! int_feature {
 macro_rules! restricted_int {
     {$(#[$attr:meta])* $name:ident : $inner:tt => $bits:expr ; $( $feature:tt )* } => {
         $(#[$attr])*
-        #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+        #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
         #[repr(transparent)]
         #[allow(non_camel_case_types)]
         pub struct $name($inner);
@@ -284,7 +284,7 @@ pub(crate) fn write_varlen_slice<W: Write>(slice: &[u8], out: &mut W) -> IoResul
 }
 
 /// The order in which tracks should be laid out when playing back this SMF file.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum Format {
     /// This file should have a single track only.
     ///
@@ -323,7 +323,7 @@ impl Format {
 
 /// The timing for an SMF file.
 /// This can be in ticks/beat or ticks/second.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum Timing {
     /// Specifies ticks/beat as a 15-bit integer.
     ///
@@ -370,7 +370,7 @@ impl Timing {
 /// - `second` is inside [0,59]
 /// - `frame` is inside [0,fps[
 /// - `subframe` is inside [0,99]
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub struct SmpteTime {
     hour: u8,
     minute: u8,
@@ -459,7 +459,7 @@ impl SmpteTime {
 }
 
 /// One of the four FPS values available for SMPTE times, as defined by the MIDI standard.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum Fps {
     /// 24 frames per second.
     Fps24,

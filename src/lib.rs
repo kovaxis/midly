@@ -108,13 +108,14 @@
 //!             vel: 127.into(),
 //!         },
 //!     };
+//! #   let mut stack_buf = [0; 3];
 //! #   let mut buf = {
 //! #       #[cfg(feature = "alloc")] {
 //!     let mut buf = Vec::new();
 //! #           buf
 //! #       }
 //! #       #[cfg(not(feature = "alloc"))] {
-//! #           [0; 3]
+//! #           &mut stack_buf[..]
 //! #       }
 //! #   };
 //!     ev.write(&mut buf).unwrap();
@@ -183,9 +184,11 @@ mod error;
 
 #[macro_use]
 mod prelude {
+    #[cfg(feature = "std")]
+    pub(crate) use crate::io::IoWrap;
     pub(crate) use crate::{
         error::{ErrorKind, Result, ResultExt, StdResult},
-        io::{IoResult, IoWrap, Seek, Write, WriteCounter},
+        io::{IoResult, Seek, Write, WriteCounter},
         primitive::{u14, u24, u28, u4, u7, IntRead, IntReadBottom7, SplitChecked},
     };
     #[cfg(feature = "alloc")]

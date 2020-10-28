@@ -9,7 +9,7 @@ use crate::{
 /// Represents a parsed SMF track event.
 ///
 /// Consists of a delta time with respect to the previous event and the actual track event.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub struct TrackEvent<'a> {
     /// How many MIDI ticks after the previous event should this event fire off.
     pub delta: u28,
@@ -59,7 +59,7 @@ impl<'a> TrackEvent<'a> {
 ///
 /// It notably does *not* include the timing of the event; the `TrackEvent` struct is responsible
 /// for this.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum TrackEventKind<'a> {
     /// A message associated to a MIDI channel carrying musical data.
     ///
@@ -196,7 +196,7 @@ impl<'a> TrackEventKind<'a> {
 /// If you wish to parse a MIDI message from a slice of raw MIDI bytes, use the
 /// [`LiveEvent::parse`](live/enum.LiveEvent.html#method.parse) method instead and ignore all
 /// variants except for [`LiveEvent::Midi`](live/enum.LiveEvent.html#variant.Midi).
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum MidiMessage {
     /// Stop playing a note.
     NoteOff {
@@ -352,7 +352,7 @@ impl MidiMessage {
 /// A value of `0x0000` indicates full bend downwards.
 /// A value of `0x2000` indicates no bend.
 /// A value of `0x3FFF` indicates full bend upwards.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub struct PitchBend(pub u14);
 impl PitchBend {
     /// The minimum value of `0x0000`, indicating full bend downwards.
@@ -405,7 +405,7 @@ impl PitchBend {
 
 /// A "meta message", as defined by the SMF spec.
 /// These events carry metadata about the track, such as tempo, time signature, copyright, etc...
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum MetaMessage<'a> {
     /// For `Format::Sequential` MIDI file types, `TrackNumber` can be empty, and defaults to
     /// the track index.

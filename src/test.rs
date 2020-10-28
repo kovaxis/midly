@@ -35,7 +35,7 @@ macro_rules! test {
 impl crate::io::Write for Vec<u8> {
     type Error = &'static str;
     type Seekable = crate::io::NotSeekable<Self>;
-    fn write_all(&mut self, buf: &[u8]) -> Result<(), &'static str> {
+    fn write(&mut self, buf: &[u8]) -> Result<(), &'static str> {
         self.extend_from_slice(buf);
         Ok(())
     }
@@ -85,12 +85,7 @@ mod parse_collect {
             })
         }
         pub fn write<W: crate::io::Write>(&self, out: &mut W) -> Result<(), W::Error> {
-            crate::write(
-                &self.header,
-                self.tracks.len(),
-                |idx| self.tracks[idx].iter(),
-                out,
-            )
+            crate::write(&self.header, self.tracks.iter(), out)
         }
     }
     pub fn len(_raw: &[u8], track: Vec<TrackEvent>) -> usize {
@@ -154,10 +149,7 @@ mod parse_lazy {
     pub fn len(_raw: &[u8], track: MidlyResult<EventIter>) -> usize {
         match track {
             Ok(track) => track.count(),
-            Err(err) => {
-                println!("failed to parse track: {}", err);
-                0
-            }
+            Err(err) => panic!("failed to parse track: {}", err),
         }
     }
 }

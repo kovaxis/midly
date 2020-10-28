@@ -19,6 +19,7 @@ use crate::{
 /// This parser takes raw MIDI, *not* `.midi` files!
 ///
 /// Read the module documentation for more info.
+#[derive(Clone, Debug, Default)]
 pub struct MidiStream<B = DefaultBuffer> {
     status: Option<u8>,
     data: B,
@@ -27,14 +28,6 @@ impl MidiStream {
     /// Create a new clean midi stream with the default buffer size.
     pub fn new() -> MidiStream {
         MidiStream::default()
-    }
-}
-impl<B: Default> Default for MidiStream<B> {
-    fn default() -> MidiStream<B> {
-        MidiStream {
-            status: None,
-            data: B::default(),
-        }
     }
 }
 impl<B: Buffer> MidiStream<B> {
@@ -62,6 +55,8 @@ impl<B: Buffer> MidiStream<B> {
                 //one sharing the status of the previous byte (running status).
                 let len = MidiMessage::msg_length(status);
                 if len > 0 && self.data.as_slice().len() >= len {
+                    // TODO: Generate MIDI message as soon as the required length is reached, rather
+                    // than waiting until the next data byte.
                     self.event(status, handle_ev);
                     self.data.clear();
                 }
@@ -131,6 +126,7 @@ pub trait Buffer {
 }
 
 /// A `Buffer` with virtually unlimited capacity.
+#[cfg(feature = "alloc")]
 impl Buffer for Vec<u7> {
     fn push(&mut self, data: &[u7]) -> StdResult<(), ()> {
         self.extend_from_slice(data);
@@ -183,8 +179,14 @@ macro_rules! stack_buffer {
             buf: [$crate::num::u7; $size],
             len: usize,
         }
-        impl std::fmt::Debug for $name {
-            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        impl core::hash::Hash for $name {
+            fn hash<H: core::hash::Hasher>(&self, h: &mut H) {
+                h.write($crate::num::u7::slice_as_int(&self.buf[..self.len]));
+                h.write(&[0xFF]);
+            }
+        }
+        impl core::fmt::Debug for $name {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 write!(f, concat!(stringify!($name), "["))?;
                 for databyte in self.buf.iter() {
                     write!(f, "{:02x}", databyte.as_int())?;
@@ -202,13 +204,13 @@ macro_rules! stack_buffer {
                 }
             }
         }
-        impl std::default::Default for $name {
+        impl core::default::Default for $name {
             fn default() -> $name {
                 Self::new()
             }
         }
         impl $crate::stream::Buffer for $name {
-            fn push(&mut self, data: &[$crate::num::u7]) -> std::result::Result<(), ()> {
+            fn push(&mut self, data: &[$crate::num::u7]) -> core::result::Result<(), ()> {
                 let new_len = self.len + data.len();
                 if new_len > Self::MAX_CAP {
                     Err(())
@@ -254,6 +256,7 @@ macro_rules! default_buffer_def {
         /// When the `alloc` feature is disabled a 16KB stack buffer is used instead.
         ///
         /// This implementation is subject to change at any time, including reductions in size.
+        #[derive(Clone, Hash, Default)]
         $($item)*
     };
 }
@@ -264,7 +267,6 @@ mod default_buf_impl {
     use super::*;
 
     default_buffer_def! {
-        #[derive(Clone, Default)]
         pub struct DefaultBuffer {
             buf: Vec<u7>,
         }
@@ -312,7 +314,6 @@ mod default_buf_impl {
     use super::*;
 
     default_buffer_def! {
-        #[derive(Clone, Default)]
         pub struct DefaultBuffer {
             buf: InnerBuf,
         }

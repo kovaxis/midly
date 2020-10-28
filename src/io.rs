@@ -58,7 +58,7 @@ impl<W> Clone for NotSeekable<W> {
 }
 impl<W> Copy for NotSeekable<W> {}
 impl<W> NotSeekable<W> {
-    fn never(self) -> ! {
+    pub fn as_never(&self) -> ! {
         match self.never {}
     }
 }
@@ -67,7 +67,7 @@ impl<W: Write> Write for NotSeekable<W> {
     type Error = W::Error;
     type Seekable = Self;
     fn write(&mut self, _: &[u8]) -> IoResult<Self> {
-        self.never()
+        self.as_never()
     }
     fn invalid_input(msg: &'static str) -> W::Error {
         W::invalid_input(msg)
@@ -76,10 +76,10 @@ impl<W: Write> Write for NotSeekable<W> {
 
 impl<W: Write> Seek for NotSeekable<W> {
     fn tell(&mut self) -> StdResult<u64, W::Error> {
-        self.never()
+        self.as_never()
     }
     fn write_at(&mut self, _: &[u8], _: u64) -> IoResult<Self> {
-        self.never()
+        self.as_never()
     }
 }
 
@@ -129,6 +129,7 @@ impl Seek for Vec<u8> {
 /// A seekable writer over an in-memory buffer.
 ///
 /// Available even when the `std` and `alloc` features are disabled.
+#[derive(Debug)]
 pub struct Cursor<'a> {
     buf: &'a mut [u8],
     cur: usize,
@@ -239,6 +240,7 @@ impl<'a> Seek for Cursor<'a> {
 }
 
 /// The errors that can arise when writing to an in-memory buffer.
+#[derive(Debug, Clone)]
 pub enum CursorError {
     /// The in-memory buffer was too small.
     OutOfSpace,
@@ -268,6 +270,7 @@ impl<'a> Write for &'a mut [u8] {
 /// Bridge between a `midly::io::Write` type and a `std::io::Write` type.
 ///
 /// Always available, but only implements `midly::io::Write` when the `std` feature is enabled.
+#[derive(Debug, Clone, Default)]
 pub struct IoWrap<T>(pub T);
 #[cfg(feature = "std")]
 impl<T: io::Write> Write for IoWrap<T> {
@@ -285,6 +288,7 @@ impl<T: io::Write> Write for IoWrap<T> {
 ///
 /// Always available, but only implements `midly::io::{Write, Seek}` when the `std` feature is
 /// enabled.
+#[derive(Debug, Clone, Default)]
 pub struct SeekableWrap<T>(pub T);
 #[cfg(feature = "std")]
 impl<T: io::Write + io::Seek> Write for SeekableWrap<T> {
