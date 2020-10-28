@@ -192,7 +192,7 @@ mod prelude {
         primitive::{u14, u24, u28, u4, u7, IntRead, IntReadBottom7, SplitChecked},
     };
     #[cfg(feature = "alloc")]
-    pub(crate) use alloc::vec::Vec;
+    pub(crate) use alloc::{boxed::Box, vec, vec::Vec};
     pub(crate) use core::{convert::TryFrom, fmt, marker::PhantomData, mem};
     #[cfg(feature = "std")]
     pub(crate) use std::{fs::File, io, path::Path};
@@ -219,13 +219,13 @@ pub use crate::smf::write_std;
 #[cfg(feature = "alloc")]
 pub use crate::{
     arena::Arena,
-    smf::{BytemappedTrack, Smf, SmfBytemap},
+    smf::{BytemappedTrack, Smf, SmfBytemap, Track},
 };
 pub use crate::{
     error::{Error, ErrorKind, Result},
     event::{MetaMessage, MidiMessage, PitchBend, TrackEvent, TrackEventKind},
     primitive::{Format, Fps, SmpteTime, Timing},
-    smf::{parse, write, EventIter, Header, Track, TrackIter},
+    smf::{parse, write, EventIter, Header, TrackIter},
 };
 
 /// Exotically-sized integers used by the MIDI standard.

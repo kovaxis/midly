@@ -15,6 +15,8 @@
 //! the [`stream`](../stream/index.html) api.
 
 use crate::{event::MidiMessage, prelude::*};
+#[cfg(feature = "alloc")]
+use crate::{event::TrackEventKind, Arena};
 
 /// A live event produced by an OS API or generated on-the-fly, in contrast with "dead"
 /// [`TrackEvent`](../struct.TrackEvent.html)s stored in a `.mid` file.
@@ -114,54 +116,55 @@ impl<'a> LiveEvent<'a> {
     ) -> io::Result<()> {
         self.write_with_running_status(running_status, &mut IoWrap(out))
     }
-}
 
-/// System Realtime messages are one-byte messages that only occur within live MIDI streams.
-/// They are usually time-sensitive, get top priority and can even be transmitted in between other
-/// messages.
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
-pub enum SystemRealtime {
-    /// If sent, they should be sent 24 times per quarter note.
-    TimingClock,
-    Start,
-    Continue,
-    Stop,
-    /// Once one of these messages is transmitted, a message should arrive every 300ms or else the
-    /// connection is considered broken.
-    ActiveSensing,
-    Reset,
-    /// An unknown system realtime message, with the given id byte.
-    Undefined(u8),
-}
-impl SystemRealtime {
-    /// Create a system realtime event from its id byte.
-    pub fn new(status: u8) -> SystemRealtime {
-        use SystemRealtime::*;
-        match status {
-            0xF8 => TimingClock,
-            0xFA => Start,
-            0xFB => Continue,
-            0xFC => Stop,
-            0xFE => ActiveSensing,
-            0xFF => Reset,
-            _ => {
-                //Unknown system realtime event
-                Undefined(status)
-            }
-        }
-    }
-
-    /// Get the id byte for this system realtime message.
-    pub fn encode(self) -> u8 {
-        use SystemRealtime::*;
+    /// Convert this `LiveEvent` into a static [`TrackEventKind`](../enum.TrackEventKind.html),
+    /// which can be written to a `.mid` file.
+    ///
+    /// This method takes an [`Arena`](../arena/struct.Arena.html) allocator, since all
+    /// `LiveEvent` variants other than `Midi` require allocation to be converted.
+    ///
+    /// Unlike [`as_live_event`](../enum.TrackEventKind.html#method.as_live_event), this method
+    /// does not return an `Option`.
+    /// Any messages that do not have an analogous `TrackEventKind` variant will be encoded into
+    /// their raw bytes and converted as `TrackEventKind::Escape`.
+    ///
+    /// This method is only available with the `alloc` feature enabled.
+    #[cfg(feature = "alloc")]
+    pub fn as_track_event<'b>(&self, arena: &'b Arena) -> TrackEventKind<'b> {
         match self {
-            TimingClock => 0xF8,
-            Start => 0xFA,
-            Continue => 0xFB,
-            Stop => 0xFC,
-            ActiveSensing => 0xFE,
-            Reset => 0xFF,
-            Undefined(byte) => byte,
+            LiveEvent::Midi { channel, message } => TrackEventKind::Midi {
+                channel: *channel,
+                message: *message,
+            },
+            LiveEvent::Common(common) => match common {
+                SystemCommon::SysEx(data) => {
+                    let mut sysex_bytes = Vec::with_capacity(data.len() + 1);
+                    sysex_bytes.extend_from_slice(u7::slice_as_int(data));
+                    sysex_bytes.push(0xF7);
+                    TrackEventKind::SysEx(arena.add_vec(sysex_bytes))
+                }
+                SystemCommon::Undefined(status, data) => {
+                    let mut ev_bytes = Vec::with_capacity(1 + data.len());
+                    ev_bytes.push(*status);
+                    ev_bytes.extend_from_slice(u7::slice_as_int(data));
+                    TrackEventKind::Escape(arena.add_vec(ev_bytes))
+                }
+                syscommon => {
+                    let mut buf = [0; 4];
+                    let rem_bytes = {
+                        let mut buf_ref = &mut buf[..];
+                        syscommon
+                            .write(&mut buf_ref)
+                            .expect("failed to write system common message");
+                        buf_ref.len()
+                    };
+                    let bytes = &buf[..buf.len() - rem_bytes];
+                    TrackEventKind::Escape(arena.add(bytes))
+                }
+            },
+            LiveEvent::Realtime(realtime) => {
+                TrackEventKind::Escape(arena.add(&[realtime.encode()]))
+            }
         }
     }
 }
@@ -297,5 +300,55 @@ impl MtcQuarterFrameMessage {
             7 => HoursHigh,
             _ => return None,
         })
+    }
+}
+
+/// System Realtime messages are one-byte messages that only occur within live MIDI streams.
+/// They are usually time-sensitive, get top priority and can even be transmitted in between other
+/// messages.
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
+pub enum SystemRealtime {
+    /// If sent, they should be sent 24 times per quarter note.
+    TimingClock,
+    Start,
+    Continue,
+    Stop,
+    /// Once one of these messages is transmitted, a message should arrive every 300ms or else the
+    /// connection is considered broken.
+    ActiveSensing,
+    Reset,
+    /// An unknown system realtime message, with the given id byte.
+    Undefined(u8),
+}
+impl SystemRealtime {
+    /// Create a system realtime event from its id byte.
+    pub fn new(status: u8) -> SystemRealtime {
+        use SystemRealtime::*;
+        match status {
+            0xF8 => TimingClock,
+            0xFA => Start,
+            0xFB => Continue,
+            0xFC => Stop,
+            0xFE => ActiveSensing,
+            0xFF => Reset,
+            _ => {
+                //Unknown system realtime event
+                Undefined(status)
+            }
+        }
+    }
+
+    /// Get the id byte for this system realtime message.
+    pub fn encode(self) -> u8 {
+        use SystemRealtime::*;
+        match self {
+            TimingClock => 0xF8,
+            Start => 0xFA,
+            Continue => 0xFB,
+            Stop => 0xFC,
+            ActiveSensing => 0xFE,
+            Reset => 0xFF,
+            Undefined(byte) => byte,
+        }
     }
 }

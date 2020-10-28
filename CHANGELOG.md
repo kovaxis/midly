@@ -19,7 +19,7 @@
 - Optimized allocations by guessing the amount of bytes per event.
 - Files without a correct header now fail early.
 - Added a `PitchBend` newtype to manipulate pitch bend values.
-- Added a `live` module that allows parsing raw MIDI event bytes.
+- Added a `live` module that allows parsing standalone MIDI events.
 - Added a `stream` module to support raw MIDI stream decoding.
 - All types now implement `Debug`, and all data types implement `Hash`.
 - `Smf::new` no longer returns an error, and creates an empty `Smf` with no tracks. To create an

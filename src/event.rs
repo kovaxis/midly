@@ -173,7 +173,7 @@ impl<'a> TrackEventKind<'a> {
     ///
     /// Only channel MIDI messages and not-split SysEx messages can be converted.
     /// Meta messages and arbitrary escapes yield `None` when converted.
-    pub fn as_live(&self) -> Option<LiveEvent<'a>> {
+    pub fn as_live_event(&self) -> Option<LiveEvent<'a>> {
         match self {
             TrackEventKind::Midi { channel, message } => Some(LiveEvent::Midi {
                 channel: *channel,

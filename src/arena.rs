@@ -6,7 +6,7 @@ use core::cell::UnsafeCell;
 /// Helps overcome limitations of the lifetime system when constructing MIDI events and files.
 ///
 /// Because many events contain references to data that outlives them, it can be hard to build a
-/// MIDI file on-the-fly.
+/// MIDI file programatically.
 ///
 /// Consider the following code:
 ///
@@ -26,9 +26,9 @@ use core::cell::UnsafeCell;
 ///
 /// Looks pretty good, but it fails to compile with
 /// `error[E0597]: "marker_name" does not live long enough`, with a rightful reason: `marker_name`
-/// is dropped before the next iteration of the loop.
+/// is dropped before the next iteration of the `for` loop.
 ///
-/// Instead, use `Arena` like the following code:
+/// Instead, use the [`Arena`](struct.Arena.html) type like the following code:
 ///
 /// ```rust
 /// use midly::{TrackEvent, TrackEventKind, MetaMessage};
@@ -44,6 +44,8 @@ use core::cell::UnsafeCell;
 ///     });
 /// }
 /// ```
+///
+/// This type is only available with the `alloc` feature enabled.
 #[derive(Default)]
 pub struct Arena {
     allocations: UnsafeCell<Vec<*mut [u8]>>,
@@ -113,7 +115,7 @@ impl Arena {
         // contents, which is safe because it was originally a `Vec<u7>`.
         unsafe {
             u7::slice_from_int_unchecked_mut(
-                self.add_boxed(mem::transmute::<Vec<u7>, Vec<u8>>(databytes).into_boxed_slice()),
+                self.add_vec(mem::transmute::<Vec<u7>, Vec<u8>>(databytes)),
             )
         }
     }

@@ -45,6 +45,9 @@ const EVENTS_TO_BYTES: f32 = 3.4;
 const PARALLEL_ENABLE_THRESHOLD: usize = 3 * 1024;
 
 /// A single track: simply a list of track events.
+///
+/// Only available with the `alloc` feature enabled.
+#[cfg(feature = "alloc")]
 pub type Track<'a> = Vec<TrackEvent<'a>>;
 
 /// Represents a single `.mid` Standard Midi File.

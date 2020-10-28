@@ -166,6 +166,8 @@ fn time<F: FnOnce() -> R, R>(activity: &str, op: F) -> R {
 fn test_live_api(file: &str) {
     open! {file: file};
     open! {smf: [parse_bytemap] file};
+    #[cfg(feature = "alloc")]
+    let arena = crate::Arena::new();
     for (bytes, ev) in smf.tracks.iter().flat_map(|track| track.iter()) {
         use crate::{
             live::{LiveEvent, SystemCommon},
@@ -183,6 +185,11 @@ fn test_live_api(file: &str) {
                     LiveEvent::parse(bytes).unwrap()
                 };
                 assert_eq!(stream_ev, LiveEvent::Midi { channel, message });
+                #[cfg(feature = "alloc")]
+                assert_eq!(
+                    ev.kind.as_live_event().unwrap().as_track_event(&arena),
+                    ev.kind
+                );
             }
             TrackEventKind::SysEx(sysex_bytes) => {
                 assert!(
@@ -201,6 +208,11 @@ fn test_live_api(file: &str) {
                 assert_eq!(
                     stream_ev,
                     LiveEvent::Common(SystemCommon::SysEx(u7::slice_from_int(sysex_bytes)))
+                );
+                #[cfg(feature = "alloc")]
+                assert_eq!(
+                    ev.kind.as_live_event().unwrap().as_track_event(&arena),
+                    ev.kind
                 );
             }
             TrackEventKind::Escape(_) => {
@@ -480,6 +492,7 @@ mod parse {
         assert_eq!(format!("{:?}", buf), format!("{:?}", buf_copy));
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn stable_arena() {
         let arena = crate::Arena::new();
