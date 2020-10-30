@@ -4,6 +4,7 @@
 ### 0.5.1
 
 - Added `new` constructors everywhere they made sense.
+- Exposed `EventBytemapIter`, which was accidentally private.
 
 ## 0.5
 

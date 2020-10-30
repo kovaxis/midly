@@ -225,7 +225,7 @@ pub use crate::{
     error::{Error, ErrorKind, Result},
     event::{MetaMessage, MidiMessage, PitchBend, TrackEvent, TrackEventKind},
     primitive::{Format, Fps, SmpteTime, Timing},
-    smf::{parse, write, EventIter, Header, TrackIter},
+    smf::{parse, write, EventBytemapIter, EventIter, Header, TrackIter},
 };
 
 /// Exotically-sized integers used by the MIDI standard.
