@@ -92,7 +92,7 @@ macro_rules! int_feature {
 macro_rules! restricted_int {
     {$(#[$attr:meta])* $name:ident : $inner:tt => $bits:expr ; $( $feature:tt )* } => {
         $(#[$attr])*
-        #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
+        #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Default)]
         #[repr(transparent)]
         #[allow(non_camel_case_types)]
         pub struct $name($inner);
@@ -104,6 +104,11 @@ macro_rules! restricted_int {
         }
         impl From<$name> for $inner {
             fn from(restricted: $name) -> $inner {restricted.0}
+        }
+        impl fmt::Display for $name {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                fmt::Display::fmt(&self.0, f)
+            }
         }
         impl $name {
             const MASK: $inner = (1 << $bits) - 1;
