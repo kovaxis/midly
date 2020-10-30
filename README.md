@@ -1,12 +1,10 @@
 # Midly
 
-Midly is a Standard Midi File parser and writer designed to be as efficient as
-possible, making as few allocations as possible and using multiple threads to
-parse and write MIDI tracks in parallel.
+Midly is a MIDI parser and writer designed for efficiency and completeness, making as few
+allocations as possible and using multiple threads to parse and write MIDI tracks in parallel.
 
 The behaviour of the parser is also configurable through crate features.
-See the crate-level documentation for the available features and `no_std`
-support.
+See the crate-level documentation for the available features and `no_std` support.
 
 ## Getting started
 
@@ -36,5 +34,24 @@ smf.header.format = midly::Format::Sequential;
 smf.save("PiRewritten.mid").unwrap();
 ```
 
+Or use the `LiveEvent` type to parse individual MIDI events:
+
+```rust
+use midly::{live::LiveEvent, MidiMessage};
+
+fn on_midi(event: &[u8]) {
+    let event = LiveEvent::parse(event).unwrap();
+    match event {
+        LiveEvent::Midi { channel, message } => match message {
+            MidiMessage::NoteOn { key, vel } => {
+                println!("hit note {} on channel {}", key, channel);
+            }
+            _ => {}
+        },
+        _ => {}
+    }
+}
+```
+
 Most types to be imported are on the crate root and are documented in-place.
-Check the crate documentation for more information.
+Check the [crate documentation](https://docs.rs/midly) for more information.

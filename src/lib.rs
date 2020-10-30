@@ -71,26 +71,29 @@
 //! # }
 //! ```
 //!
-//! # Parsing raw live MIDI messages
+//! # Parsing standalone MIDI messages
 //!
 //! When using an OS API such as [`midir`](https://docs.rs/midir),
 //! [`LiveEvent`](live/enum.LiveEvent.html) can be used to parse the raw MIDI bytes:
 //!
 //! ```rust
-//! use midly::live::LiveEvent;
+//! use midly::{live::LiveEvent, MidiMessage};
 //!
-//! fn on_midi_event(bytes: &[u8]) {
-//!     let ev = LiveEvent::parse(bytes).unwrap();
-//!     match ev {
-//!         LiveEvent::Midi{channel, message} => {
-//!             println!("midi message on channel {}: {:?}", channel.as_int(), message);
-//!         }
+//! fn on_midi(event: &[u8]) {
+//!     let event = LiveEvent::parse(event).unwrap();
+//!     match event {
+//!         LiveEvent::Midi { channel, message } => match message {
+//!             MidiMessage::NoteOn { key, vel } => {
+//!                 println!("hit note {} on channel {}", key, channel);
+//!             }
+//!             _ => {}
+//!         },
 //!         _ => {}
 //!     }
 //! }
 //! ```
 //!
-//! # Writing raw live MIDI messages
+//! # Writing standalone MIDI messages
 //!
 //! Raw MIDI message bytes can be produced for consumption by OS APIs, such as
 //! [`midir`](https://docs.rs/midir), through the
