@@ -1,6 +1,6 @@
 [package]
 name = "midly"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2018"
 authors = ["negamartin"]
 include = [
@@ -10,8 +10,8 @@ include = [
 description = "Fast and complete MIDI parser and writer"
 repository = "https://github.com/negamartin/midly"
 readme = "README.md"
-keywords = ["parser", "audio", "midi", "no_std"]
-categories = ["multimedia", "multimedia::audio", "multimedia::encoding"]
+keywords = ["midi", "no_std", "audio", "parser"]
+categories = ["multimedia::audio", "multimedia::encoding", "multimedia"]
 license = "Unlicense"
 
 [features]

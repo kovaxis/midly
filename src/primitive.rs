@@ -359,6 +359,7 @@ impl Format {
             _ => bail!(err_invalid!("invalid smf format")),
         })
     }
+
     pub(crate) fn encode(&self) -> [u8; 2] {
         let code: u16 = match self {
             Format::SingleTrack => 0,
@@ -399,6 +400,7 @@ impl Timing {
             Ok(Timing::Metrical(u15::from(raw)))
         }
     }
+
     pub(crate) fn encode(&self) -> [u8; 2] {
         match self {
             Timing::Metrical(ticksperbeat) => ticksperbeat.as_int().to_be_bytes(),
@@ -457,24 +459,31 @@ impl SmpteTime {
             fps,
         })
     }
+
     pub fn hour(&self) -> u8 {
         self.hour
     }
+
     pub fn minute(&self) -> u8 {
         self.minute
     }
+
     pub fn second(&self) -> u8 {
         self.second
     }
+
     pub fn frame(&self) -> u8 {
         self.frame
     }
+
     pub fn subframe(&self) -> u8 {
         self.subframe
     }
+
     pub fn fps(&self) -> Fps {
         self.fps
     }
+
     pub fn second_f32(&self) -> f32 {
         self.second as f32
             + ((self.frame as f32 + self.subframe as f32 / 100.0) / self.fps.as_f32())
@@ -494,6 +503,7 @@ impl SmpteTime {
         Ok(SmpteTime::new(hour, minute, second, frame, subframe, fps)
             .ok_or(err_invalid!("invalid smpte time"))?)
     }
+
     pub(crate) fn encode(&self) -> [u8; 5] {
         let hour_fps = self.hour() | self.fps().as_code().as_int() << 5;
         [
@@ -531,6 +541,7 @@ impl Fps {
             _ => unreachable!(),
         }
     }
+
     /// Does the conversion to a 2-bit fps code.
     pub(crate) fn as_code(self) -> u2 {
         u2::from(match self {
@@ -540,6 +551,7 @@ impl Fps {
             Fps::Fps30 => 3,
         })
     }
+
     /// Converts an integer representing the semantic fps to an `Fps` value (ie. `24` -> `Fps24`).
     pub fn from_int(raw: u8) -> Option<Fps> {
         Some(match raw {
@@ -550,6 +562,7 @@ impl Fps {
             _ => return None,
         })
     }
+
     /// Get the integral approximate fps out.
     pub fn as_int(self) -> u8 {
         match self {
@@ -559,6 +572,7 @@ impl Fps {
             Fps::Fps30 => 30,
         }
     }
+
     /// Get the actual `f32` fps out.
     pub fn as_f32(self) -> f32 {
         match self.as_int() {

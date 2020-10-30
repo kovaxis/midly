@@ -1,9 +1,11 @@
 
 # Version changelog
 
-## 0.5
+### 0.5.1
 
-### 0.5.0
+
+
+## 0.5
 
 - Rename `number` module to `num`.
 - Simplify generic `Smf<T>` to `Smf`, `SmfBytemap` and generic `parse`/`write` functions.
@@ -26,8 +28,6 @@
     `Smf` with prebuilt tracks use `Smf { header, tracks }` construction.
 - Added `Arena` to make track construction more ergonomic.
 
-## 0.4
-
 ### 0.4.1
 
 - Add support for the `.rmi` RIFF wrapper for MIDI files.
@@ -35,19 +35,15 @@
 - Add a `TrackIter::running_status_mut` method.
 - Update `README.md` to match `0.4`.
 
-### 0.4.0
+## 0.4
 
 - `EventKind::parse` and `Event::read` no longer return event bytes.
 - Simplify `lenient` and `strict` features to a simple `strict` feature.
 
 ## 0.3
 
-## 0.3.0
-
 - Add support for writing MIDI files and events.
 - Handle running status more correctly.
-
-## 0.2
 
 ### 0.2.2
 
@@ -58,7 +54,7 @@
 - Update `README.md` to match the API of `0.2`.
 - Added an `ErrorKind::mesage` method.
 
-### 0.2.0
+## 0.2
 
 - Move error framework from `error-chain` to `failure`.
 - Renamed `Varlen` to `u28`.
@@ -70,8 +66,6 @@
 - No longer tries to parallelize lazy parsing.
 - Renamed `EventKind::read` to `EventKind::parse` to match the rest of the parse methods.
 - Added an optional (enabled by default) `std` feature to make the crate `no_std + alloc`.
-
-## 0.1
 
 ### 0.1.3
 
@@ -85,7 +79,7 @@
 
 - Add `as_int` method to convert MIDI integers to primitives.
 
-### 0.1.0
+## 0.1.0
 
 - Initial release.
 

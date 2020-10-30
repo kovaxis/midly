@@ -142,6 +142,7 @@ impl<'a> Cursor<'a> {
             cur: 0,
         }
     }
+
     /// Create a cursor from a buffer and the cursor within it.
     pub fn from_parts(buffer: &mut [u8], cursor: usize) -> Cursor {
         assert!(
@@ -153,6 +154,7 @@ impl<'a> Cursor<'a> {
             cur: cursor,
         }
     }
+
     /// Yield the underlying buffer and the cursor within it.
     ///
     /// The cursor is guaranteed to be `cursor <= buffer.len()`.
@@ -164,10 +166,12 @@ impl<'a> Cursor<'a> {
     pub fn slice(&self) -> &[u8] {
         self.buf
     }
+
     /// Get a mutable reference to the whole underlying buffer.
     pub fn slice_mut(&mut self) -> &mut [u8] {
         self.buf
     }
+
     /// Get the position of the cursor.
     pub fn cursor(&self) -> usize {
         self.cur
@@ -177,10 +181,12 @@ impl<'a> Cursor<'a> {
     pub fn written(&self) -> &[u8] {
         &self.buf[..self.cur]
     }
+
     /// Get a reference to the portion of the buffer that is not yet written.
     pub fn unwritten(&self) -> &[u8] {
         &self.buf[self.cur..]
     }
+
     /// Split the buffer into the written and unwritten parts.
     pub fn split(&self) -> (&[u8], &[u8]) {
         self.buf.split_at(self.cur)
@@ -190,10 +196,12 @@ impl<'a> Cursor<'a> {
     pub fn written_mut(&mut self) -> &mut [u8] {
         &mut self.buf[..self.cur]
     }
+
     /// Get a mutable reference to the portion of the buffer that is not yet written.
     pub fn unwritten_mut(&mut self) -> &mut [u8] {
         &mut self.buf[self.cur..]
     }
+
     /// Split the buffer into the written and unwritten parts.
     pub fn split_mut(&mut self) -> (&mut [u8], &mut [u8]) {
         self.buf.split_at_mut(self.cur)

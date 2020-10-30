@@ -553,6 +553,7 @@ impl Header {
 }
 
 /// An iterator over all *tracks* in a Standard Midi File.
+/// Created by the [`parse`](fn.parse.html) function.
 ///
 /// This type is always available, even in `no_std` environments.
 #[derive(Clone, Debug)]
@@ -728,6 +729,7 @@ impl<'a, T: EventKind<'a>> Iterator for EventIterGeneric<'a, T> {
 }
 
 /// An iterator over the events of a single track.
+/// Yielded by the [`TrackIter`](struct.TrackIter.html) iterator.
 ///
 /// This iterator is lazy, it parses events as it goes, and therefore produces `Result<TrackEvent>>`
 /// rather than `TrackEvent`.
@@ -801,6 +803,7 @@ impl<'a> Iterator for EventIter<'a> {
 
 /// An iterator over the events of a single track that keeps track of the raw bytes that make up
 /// each event.
+/// Created by the [`EventIter::bytemapped`](struct.EventIter.html#method.bytemapped) method.
 ///
 /// This iterator is lazy, it parses events as it goes, and therefore produces
 /// `Result<(&[u8], TrackEvent)>>` rather than just `(&[u8], TrackEvent)`.
