@@ -88,4 +88,3 @@
 # Planned changes
 
 - Move to a cursor approach instead of an advancing slice, for performance.
-- Add `#[inline]` annotations to corresponding functions.

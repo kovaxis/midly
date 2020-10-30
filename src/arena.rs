@@ -52,6 +52,7 @@ pub struct Arena {
 }
 impl Arena {
     /// Create a new empty arena.
+    #[inline]
     pub fn new() -> Arena {
         Self::default()
     }
@@ -59,6 +60,7 @@ impl Arena {
     /// Empty this arena, deallocating all added bytes.
     ///
     /// This method is safe to call because it requires a mutable reference.
+    #[inline]
     pub fn clear(&mut self) {
         // SAFETY:
         // Accessing the `UnsafeCell` is safe because we have a mutable reference to it.
@@ -72,6 +74,7 @@ impl Arena {
     }
 
     /// Get the amount of allocations in the arena.
+    #[inline]
     pub fn len(&self) -> usize {
         // SAFETY:
         // Accessing `self.allocations` is safe as long as there are no concurrent reads or writes.
@@ -82,6 +85,7 @@ impl Arena {
 
     /// Add a set of bytes to the arena, returning a longer-lived mutable reference to a copy of
     /// these same bytes.
+    #[inline]
     pub fn add<'a, 'b>(&'a self, bytes: &'b [u8]) -> &'a mut [u8] {
         self.add_boxed(Box::from(bytes))
     }
@@ -89,12 +93,14 @@ impl Arena {
     /// Add a `Vec<u8>` to the arena, returning a long-lived mutable reference to its contents.
     ///
     /// This method is very similar to `add`, but avoids an allocation and a copy.
+    #[inline]
     pub fn add_vec<'a>(&'a self, bytes: Vec<u8>) -> &'a mut [u8] {
         self.add_boxed(bytes.into_boxed_slice())
     }
 
     /// Add a set of databytes to the arena, returning a longer-lived mutable reference to a copy
     /// of these same databytes.
+    #[inline]
     pub fn add_u7<'a, 'b>(&'a self, databytes: &'b [u7]) -> &'a mut [u7] {
         // SAFETY:
         // The returned `&mut [u8]` is transformed into a `&mut [u7]` without checking its
@@ -105,6 +111,7 @@ impl Arena {
     /// Add a `Vec<u7>` to the arena, returning a long-lived mutable reference to its contents.
     ///
     /// This method is very similar to `add_u7`, but avoids an allocation and a copy.
+    #[inline]
     pub fn add_u7_vec<'a>(&'a self, databytes: Vec<u7>) -> &'a mut [u7] {
         // SAFETY:
         // Two unsafe actions are done:
@@ -120,6 +127,7 @@ impl Arena {
         }
     }
 
+    #[inline]
     fn add_boxed<'a>(&'a self, boxed_bytes: Box<[u8]>) -> &'a mut [u8] {
         // SAFETY:
         // This block moves `boxed_bytes` into `self` and returns a mutable reference to its
@@ -135,6 +143,7 @@ impl Arena {
     }
 }
 impl Drop for Arena {
+    #[inline]
     fn drop(&mut self) {
         self.clear();
     }

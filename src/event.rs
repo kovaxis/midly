@@ -359,14 +359,19 @@ impl MidiMessage {
 pub struct PitchBend(pub u14);
 impl PitchBend {
     /// The minimum value of `0x0000`, indicating full bend downwards.
+    #[inline]
     pub const fn min_raw_value() -> PitchBend {
         PitchBend(u14::new(0x0000))
     }
+
     /// The middle value of `0x2000`, indicating no bend.
+    #[inline]
     pub const fn mid_raw_value() -> PitchBend {
         PitchBend(u14::new(0x2000))
     }
+
     /// The maximum value of `0x3FFF`, indicating full bend upwards.
+    #[inline]
     pub const fn max_raw_value() -> PitchBend {
         PitchBend(u14::new(0x3FFF))
     }
@@ -374,31 +379,41 @@ impl PitchBend {
     /// Create a `PitchBend` value from an int in the range `[-0x2000, 0x1FFF]`.
     ///
     /// Integers outside this range will be clamped.
+    #[inline]
     pub fn from_int(int: i16) -> PitchBend {
         PitchBend(u14::new((int.max(-0x2000).min(0x1FFF) + 0x2000) as u16))
     }
+
     /// Create a `PitchBend` value from a number in the range `[-1.0, 1.0)`.
     ///
     /// Floats outside this range will be clamped.
+    #[inline]
     pub fn from_f32(float: f32) -> PitchBend {
         PitchBend::from_int((float.max(-1.0).min(1.0) * 0x2000 as f32) as i16)
     }
+
     /// Create a `PitchBend` value from a number in the range `[-1.0, 1.0)`.
     ///
     /// Floats outside this range will be clamped.
+    #[inline]
     pub fn from_f64(float: f64) -> PitchBend {
         PitchBend::from_int((float.max(-1.0).min(1.0) * 0x2000 as f64) as i16)
     }
 
     /// Returns an int in the range `[-0x2000, 0x1FFF]`.
+    #[inline]
     pub fn as_int(self) -> i16 {
         self.0.as_int() as i16 - 0x2000
     }
+
     /// Returns an `f32` in the range `[-1.0, 1.0)`.
+    #[inline]
     pub fn as_f32(self) -> f32 {
         self.as_int() as f32 * (1.0 / 0x2000 as f32)
     }
+
     /// Returns an `f64` in the range `[-1.0, 1.0)`.
+    #[inline]
     pub fn as_f64(self) -> f64 {
         self.as_int() as f64 * (1.0 / 0x2000 as f64)
     }

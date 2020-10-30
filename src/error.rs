@@ -12,12 +12,15 @@ mod error_impl {
         src: Option<Error>,
     }
     impl ErrorExt for Error {
+        #[inline]
         fn kind(&self) -> ErrorKind {
             *self.inner.this
         }
+        #[inline]
         fn source(&self) -> Option<&Error> {
             self.inner.src.as_ref()
         }
+        #[inline]
         fn chain_ctx(self, ctx: &'static ErrorKind) -> Error {
             Error {
                 inner: Chained {
@@ -29,6 +32,7 @@ mod error_impl {
         }
     }
     impl From<&'static ErrorKind> for Error {
+        #[inline]
         fn from(kind: &'static ErrorKind) -> Error {
             Error {
                 inner: Chained {
@@ -48,17 +52,21 @@ mod error_impl {
     /// In release mode errors are just a thin pointer.
     pub type ErrorInner = &'static ErrorKind;
     impl ErrorExt for Error {
+        #[inline]
         fn kind(&self) -> ErrorKind {
             *self.inner
         }
+        #[inline]
         fn source(&self) -> Option<&Error> {
             None
         }
+        #[inline]
         fn chain_ctx(self, ctx: &'static ErrorKind) -> Error {
             Error { inner: ctx }
         }
     }
     impl From<&'static ErrorKind> for Error {
+        #[inline]
         fn from(inner: &'static ErrorKind) -> Error {
             Error { inner }
         }
@@ -83,11 +91,13 @@ pub struct Error {
 }
 impl Error {
     /// Create a new error with the given `ErrorKind`.
+    #[inline]
     pub fn new(kind: &'static ErrorKind) -> Error {
         Error::from(kind)
     }
 
     /// More information about the error itself.
+    #[inline]
     pub fn kind(&self) -> ErrorKind {
         ErrorExt::kind(self)
     }
@@ -98,11 +108,13 @@ impl Error {
     /// are not tracked in release.
     ///
     /// This method is available even if the `std` feature is not enabled.
+    #[inline]
     pub fn source(&self) -> Option<&Error> {
         ErrorExt::source(self)
     }
 }
 impl fmt::Display for Error {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&self.kind(), f)
     }
@@ -121,6 +133,7 @@ impl fmt::Debug for Error {
 }
 #[cfg(feature = "std")]
 impl std::error::Error for Error {
+    #[inline]
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         self.source()
             .map(|e| e as &(dyn std::error::Error + 'static))
@@ -159,6 +172,7 @@ pub enum ErrorKind {
 }
 impl ErrorKind {
     /// Get the informative message on what exact part of the MIDI format was not respected.
+    #[inline]
     pub fn message(&self) -> &'static str {
         match *self {
             ErrorKind::Invalid(msg) => msg,
@@ -167,6 +181,7 @@ impl ErrorKind {
     }
 }
 impl fmt::Display for ErrorKind {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ErrorKind::Invalid(msg) => write!(f, "invalid midi: {}", msg),
@@ -192,11 +207,13 @@ pub(crate) trait ResultExt<T> {
     fn context(self, ctx: &'static ErrorKind) -> StdResult<T, Error>;
 }
 impl<T> ResultExt<T> for StdResult<T, Error> {
+    #[inline]
     fn context(self, ctx: &'static ErrorKind) -> StdResult<T, Error> {
         self.map_err(|err| err.chain_ctx(ctx))
     }
 }
 impl<T> ResultExt<T> for StdResult<T, &'static ErrorKind> {
+    #[inline]
     fn context(self, ctx: &'static ErrorKind) -> StdResult<T, Error> {
         self.map_err(|errkind| Error::from(errkind).chain_ctx(ctx))
     }

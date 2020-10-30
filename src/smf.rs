@@ -68,6 +68,7 @@ pub struct Smf<'a> {
 #[cfg(feature = "alloc")]
 impl<'a> Smf<'a> {
     /// Create a new empty `Smf` with zero tracks, using the given header.
+    #[inline]
     pub fn new(header: Header) -> Smf<'a> {
         Smf {
             header,
@@ -94,6 +95,7 @@ impl<'a> Smf<'a> {
     /// [`write_std`](#method.write_std) method.
     ///
     /// This function is always available, even in `no_std` environments.
+    #[inline]
     pub fn write<W: Write>(&self, out: &mut W) -> WriteResult<W> {
         write(&self.header, &self.tracks, out)
     }
@@ -105,6 +107,7 @@ impl<'a> Smf<'a> {
     ///
     /// This function is only available with the `std` feature enabled.
     #[cfg(feature = "std")]
+    #[inline]
     pub fn write_std<W: io::Write>(&self, out: W) -> io::Result<()> {
         write_std(&self.header, &self.tracks, out)
     }
@@ -113,7 +116,11 @@ impl<'a> Smf<'a> {
     ///
     /// This function is only available with the `std` feature enabled.
     #[cfg(feature = "std")]
+    #[inline]
     pub fn save<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
+        /// A non-generic, non-inline function.
+        /// This means that this function will be compiled and monomorphized once, and reused for
+        /// every call to `save`.
         fn save_impl(smf: &Smf, path: &Path) -> io::Result<()> {
             smf.write(&mut IoWrap(File::create(path)?))
         }
@@ -141,6 +148,7 @@ pub struct SmfBytemap<'a> {
 #[cfg(feature = "alloc")]
 impl<'a> SmfBytemap<'a> {
     /// Create a new empty `SmfBytemap` with zero tracks, using the given header.
+    #[inline]
     pub fn new(header: Header) -> SmfBytemap<'a> {
         SmfBytemap {
             header,
@@ -159,6 +167,7 @@ impl<'a> SmfBytemap<'a> {
     }
 
     /// Encodes and writes the *events* (not the bytemap) to the given generic writer.
+    #[inline]
     pub fn write<W: Write>(&self, out: &mut W) -> WriteResult<W> {
         write(
             &self.header,
@@ -173,6 +182,7 @@ impl<'a> SmfBytemap<'a> {
     ///
     /// This function is only available with the `std` feature enabled.
     #[cfg(feature = "std")]
+    #[inline]
     pub fn write_std<W: io::Write>(&self, out: W) -> io::Result<()> {
         write_std(
             &self.header,
@@ -188,7 +198,11 @@ impl<'a> SmfBytemap<'a> {
     ///
     /// This function is only available with the `std` feature enabled.
     #[cfg(feature = "std")]
+    #[inline]
     pub fn save<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
+        /// A non-generic, non-inline function.
+        /// This means that this function will be compiled and monomorphized once, and reused for
+        /// every call to `save`.
         fn save_impl(smf: &SmfBytemap, path: &Path) -> io::Result<()> {
             smf.write(&mut IoWrap(File::create(path)?))
         }
@@ -338,6 +352,7 @@ where
 ///
 /// This function is only available with the `std` feature enabled.
 #[cfg(feature = "std")]
+#[inline]
 pub fn write_std<'a, T, E, W>(header: &Header, tracks: T, out: W) -> io::Result<()>
 where
     T: IntoIterator<Item = E>,
@@ -355,10 +370,12 @@ struct ChunkIter<'a> {
     raw: &'a [u8],
 }
 impl<'a> ChunkIter<'a> {
+    #[inline]
     fn new(raw: &'a [u8]) -> ChunkIter {
         ChunkIter { raw }
     }
 
+    #[inline]
     fn as_tracks(self, track_count_hint: u16) -> TrackIter<'a> {
         TrackIter {
             chunks: self,
@@ -368,6 +385,7 @@ impl<'a> ChunkIter<'a> {
 }
 impl<'a> Iterator for ChunkIter<'a> {
     type Item = Result<Chunk<'a>>;
+    #[inline]
     fn next(&mut self) -> Option<Result<Chunk<'a>>> {
         //Flip around option and result
         match Chunk::read(&mut self.raw) {
@@ -532,6 +550,7 @@ pub struct Header {
 }
 impl Header {
     /// Create a new header from its raw parts.
+    #[inline]
     pub fn new(format: Format, timing: Timing) -> Header {
         Header { format, timing }
     }
@@ -565,6 +584,7 @@ impl<'a> TrackIter<'a> {
     /// Create an event iterator from raw SMF bytes, excluding the header.
     ///
     /// The main way to obtain raw SMF without a header is the [`unread`](#method.unread) method.
+    #[inline]
     pub fn new(raw: &[u8]) -> TrackIter {
         TrackIter {
             chunks: ChunkIter::new(raw),
@@ -573,6 +593,7 @@ impl<'a> TrackIter<'a> {
     }
 
     /// Peek at the remaining unparsed bytes in the file.
+    #[inline]
     pub fn unread(&self) -> &'a [u8] {
         self.chunks.raw
     }
@@ -595,6 +616,7 @@ impl<'a> TrackIter<'a> {
     }
 
     #[cfg(feature = "alloc")]
+    #[inline]
     fn generic_collect<T: Send + 'a>(
         self,
         collect: impl Fn(EventIter<'a>) -> Result<Vec<T>> + Send + Sync,
@@ -620,6 +642,7 @@ impl<'a> TrackIter<'a> {
 impl<'a> Iterator for TrackIter<'a> {
     type Item = Result<EventIter<'a>>;
 
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         (
             self.track_count_hint as usize,
@@ -627,6 +650,7 @@ impl<'a> Iterator for TrackIter<'a> {
         )
     }
 
+    #[inline]
     fn next(&mut self) -> Option<Result<EventIter<'a>>> {
         loop {
             if let Some(chunk) = self.chunks.next() {
@@ -669,6 +693,7 @@ struct EventIterGeneric<'a, T> {
     _kind: PhantomData<T>,
 }
 impl<'a, T: EventKind<'a>> EventIterGeneric<'a, T> {
+    #[inline]
     fn new(raw: &[u8]) -> EventIterGeneric<T> {
         EventIterGeneric {
             raw,
@@ -678,26 +703,31 @@ impl<'a, T: EventKind<'a>> EventIterGeneric<'a, T> {
     }
 
     /// Get the remaining unread bytes.
+    #[inline]
     fn unread(&self) -> &'a [u8] {
         self.raw
     }
 
     /// Get the current running status of the track.
+    #[inline]
     fn running_status(&self) -> Option<u8> {
         self.running_status
     }
 
     /// Modify the current running status of the track.
+    #[inline]
     fn running_status_mut(&mut self) -> &mut Option<u8> {
         &mut self.running_status
     }
 
     #[cfg(feature = "alloc")]
+    #[inline]
     fn estimate_events(&self) -> usize {
         (self.raw.len() as f32 * BYTES_TO_EVENTS) as usize
     }
 
     #[cfg(feature = "alloc")]
+    #[inline]
     fn into_vec(mut self) -> Result<Vec<T::Event>> {
         let mut events = Vec::with_capacity(self.estimate_events());
         while !self.raw.is_empty() {
@@ -719,6 +749,7 @@ impl<'a, T: EventKind<'a>> EventIterGeneric<'a, T> {
 }
 impl<'a, T: EventKind<'a>> Iterator for EventIterGeneric<'a, T> {
     type Item = Result<T::Event>;
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if !self.raw.is_empty() {
             match T::read_ev(&mut self.raw, &mut self.running_status) {
@@ -751,6 +782,7 @@ pub struct EventIter<'a> {
 }
 impl<'a> EventKind<'a> for EventIter<'a> {
     type Event = TrackEvent<'a>;
+    #[inline]
     fn read_ev(raw: &mut &'a [u8], rs: &mut Option<u8>) -> Result<TrackEvent<'a>> {
         TrackEvent::read(raw, rs)
     }
@@ -761,6 +793,7 @@ impl<'a> EventIter<'a> {
     /// It can be hard to obtain raw track bytes.
     /// Usually these raw track bytes are obtained from the [`unread`](#method.unread) method on an
     /// event iterator.
+    #[inline]
     pub fn new(raw: &[u8]) -> EventIter {
         EventIter {
             inner: EventIterGeneric::new(raw),
@@ -768,21 +801,25 @@ impl<'a> EventIter<'a> {
     }
 
     /// Get the remaining unparsed event bytes.
+    #[inline]
     pub fn unread(&self) -> &'a [u8] {
         self.inner.unread()
     }
 
     /// Get the current running status of the track.
+    #[inline]
     pub fn running_status(&self) -> Option<u8> {
         self.inner.running_status()
     }
 
     /// Modify the current running status of the track.
+    #[inline]
     pub fn running_status_mut(&mut self) -> &mut Option<u8> {
         self.inner.running_status_mut()
     }
 
     /// Make this event iterator keep track of the raw bytes that make up each event.
+    #[inline]
     pub fn bytemapped(self) -> EventBytemapIter<'a> {
         EventBytemapIter {
             inner: EventIterGeneric {
@@ -800,12 +837,14 @@ impl<'a> EventIter<'a> {
     ///
     /// This function is only available with the `alloc` feature enabled.
     #[cfg(feature = "alloc")]
+    #[inline]
     pub fn into_vec(self) -> Result<Track<'a>> {
         self.inner.into_vec()
     }
 }
 impl<'a> Iterator for EventIter<'a> {
     type Item = Result<TrackEvent<'a>>;
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next()
     }
@@ -825,6 +864,7 @@ pub struct EventBytemapIter<'a> {
 }
 impl<'a> EventKind<'a> for EventBytemapIter<'a> {
     type Event = (&'a [u8], TrackEvent<'a>);
+    #[inline]
     fn read_ev(raw: &mut &'a [u8], rs: &mut Option<u8>) -> Result<Self::Event> {
         TrackEvent::read_bytemap(raw, rs)
     }
@@ -835,6 +875,7 @@ impl<'a> EventBytemapIter<'a> {
     /// It can be hard to obtain raw track bytes.
     /// Usually these raw track bytes are obtained from the [`unread`](#method.unread) method on an
     /// event iterator.
+    #[inline]
     pub fn new(raw: &[u8]) -> EventBytemapIter {
         EventBytemapIter {
             inner: EventIterGeneric::new(raw),
@@ -842,21 +883,25 @@ impl<'a> EventBytemapIter<'a> {
     }
 
     /// Get the remaining unparsed event bytes.
+    #[inline]
     pub fn unread(&self) -> &'a [u8] {
         self.inner.unread()
     }
 
     /// Get the current running status of the track.
+    #[inline]
     pub fn running_status(&self) -> Option<u8> {
         self.inner.running_status()
     }
 
     /// Modify the current running status of the track.
+    #[inline]
     pub fn running_status_mut(&mut self) -> &mut Option<u8> {
         self.inner.running_status_mut()
     }
 
     /// Stop collecting bytemap information for any remaining events.
+    #[inline]
     pub fn not_bytemapped(self) -> EventIter<'a> {
         EventIter {
             inner: EventIterGeneric {
@@ -874,12 +919,14 @@ impl<'a> EventBytemapIter<'a> {
     ///
     /// This function is only available with the `alloc` feature enabled.
     #[cfg(feature = "alloc")]
+    #[inline]
     pub fn into_vec(self) -> Result<Vec<(&'a [u8], TrackEvent<'a>)>> {
         self.inner.into_vec()
     }
 }
 impl<'a> Iterator for EventBytemapIter<'a> {
     type Item = Result<(&'a [u8], TrackEvent<'a>)>;
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next()
     }

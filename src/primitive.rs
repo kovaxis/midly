@@ -8,6 +8,7 @@ pub(crate) trait SplitChecked: Sized {
     fn split_checked(&mut self, at: usize) -> Option<Self>;
 }
 impl<'a> SplitChecked for &'a [u8] {
+    #[inline]
     fn split_checked(&mut self, at: usize) -> Option<&'a [u8]> {
         if at > self.len() {
             None
@@ -36,6 +37,7 @@ macro_rules! impl_read_int {
     {$( $int:ty ),*} => {
         $(
             impl IntRead for $int {
+                #[inline]
                 fn read(raw: &mut &[u8]) -> StdResult<$int, &'static ErrorKind> {
                     let bytes = raw.split_checked(mem::size_of::<$int>())
                         .ok_or(err_invalid!("failed to read the expected integer"))?;
@@ -77,6 +79,7 @@ macro_rules! int_feature {
     };
     { $name:ident ; $inner:tt : read } => {
         impl IntRead for $name {
+            #[inline]
             fn read(raw: &mut &[u8]) -> StdResult<Self, &'static ErrorKind> {
                 let raw = $inner::read(raw)?;
                 if cfg!(feature = "strict") {
@@ -98,14 +101,17 @@ macro_rules! restricted_int {
         pub struct $name($inner);
         impl From<$inner> for $name {
             /// Lossy convertion, loses top bit.
+            #[inline]
             fn from(raw: $inner) -> $name {
                 $name::from_int_lossy(raw)
             }
         }
         impl From<$name> for $inner {
+            #[inline]
             fn from(restricted: $name) -> $inner {restricted.0}
         }
         impl fmt::Display for $name {
+            #[inline]
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 fmt::Display::fmt(&self.0, f)
             }
@@ -114,24 +120,28 @@ macro_rules! restricted_int {
             const MASK: $inner = (1 << $bits) - 1;
 
             /// The maximum value that this restricted integer can hold.
+            #[inline]
             pub const fn max_value() -> $name {
                 $name (Self::MASK)
             }
 
             /// Creates a restricted int from its non-restricted counterpart by masking off the
             /// extra bits.
+            #[inline]
             pub const fn new(raw: $inner) -> $name {
                 $name (raw & Self::MASK)
             }
 
             /// Creates a restricted int from its non-restricted counterpart by masking off the
             /// extra bits.
+            #[inline]
             pub const fn from_int_lossy(raw: $inner) -> $name {
                 $name (raw & Self::MASK)
             }
 
             /// Returns `Some` if the raw integer is within range of the restricted integer, and
             /// `None` otherwise.
+            #[inline]
             pub fn try_from(raw: $inner) -> Option<$name> {
                 if raw <= Self::MASK {
                     Some($name(raw))
@@ -142,12 +152,14 @@ macro_rules! restricted_int {
 
             /// Get the inner integer out of the wrapper.
             /// The inner integer is guaranteed to be in range of the restricted wrapper.
+            #[inline]
             pub fn as_int(self) -> $inner {
                 Into::into(self)
             }
 
             /// Cast a slice of raw integers to a slice of restricted integers, only if there are
             /// no out-of-range integers.
+            #[inline]
             pub fn slice_try_from_int(raw: &[$inner]) -> Option<&[$name]> {
                 for &int in raw {
                     if int > Self::MASK {
@@ -162,6 +174,7 @@ macro_rules! restricted_int {
             /// Cast a slice of raw integers to a slice of restricted integers.
             ///
             /// The slice is truncated up to the first out-of-range integer, if there is any.
+            #[inline]
             pub fn slice_from_int(raw: &[$inner]) -> &[$name] {
                 let first_oob = raw
                     .iter()
@@ -177,12 +190,14 @@ macro_rules! restricted_int {
             /// # Safety
             ///
             /// The input slice must not contain any out-of-range integers.
+            #[inline]
             pub unsafe fn slice_from_int_unchecked(raw: &[$inner]) -> &[$name] {
                 &*( raw as *const [$inner] as *const [$name] )
             }
 
             /// Cast a slice of mutable raw integers to a slice of mutable restricted integers, only
             /// if there are no out-of-range integers.
+            #[inline]
             pub fn slice_try_from_int_mut(raw: &mut [$inner]) -> Option<&mut [$name]> {
                 for &int in raw.iter() {
                     if int > Self::MASK {
@@ -197,6 +212,7 @@ macro_rules! restricted_int {
             /// Cast a slice of mutable raw integers to a slice of mutable restricted integers.
             ///
             /// The slice is truncated up to the first out-of-range integer, if there is any.
+            #[inline]
             pub fn slice_from_int_mut(raw: &mut [$inner]) -> &mut [$name] {
                 let first_oob = raw
                     .iter()
@@ -212,6 +228,7 @@ macro_rules! restricted_int {
             /// # Safety
             ///
             /// The input slice must not contain any out-of-range integers.
+            #[inline]
             pub unsafe fn slice_from_int_unchecked_mut(raw: &mut [$inner]) -> &mut [$name] {
                 &mut *( raw as *mut [$inner] as *mut [$name] )
             }
@@ -219,11 +236,13 @@ macro_rules! restricted_int {
             /// Cast a slice of restricted integers to the corresponding raw integers.
             ///
             /// All integers are guaranteed to be within range of the restricted int.
+            #[inline]
             pub fn slice_as_int(slice: &[$name]) -> &[$inner] {
                 unsafe { &*(slice as *const [$name] as *const [$inner]) }
             }
 
             #[allow(dead_code)]
+            #[inline]
             pub(crate) fn check_int(raw: $inner) -> StdResult<$name, &'static ErrorKind> {
                 Self::try_from(raw).ok_or_else(
                     || err_invalid!("invalid integer with top bits set")
@@ -441,6 +460,7 @@ pub struct SmpteTime {
     fps: Fps,
 }
 impl SmpteTime {
+    #[inline]
     pub fn new(
         hour: u8,
         minute: u8,
@@ -471,30 +491,37 @@ impl SmpteTime {
         })
     }
 
+    #[inline]
     pub fn hour(&self) -> u8 {
         self.hour
     }
 
+    #[inline]
     pub fn minute(&self) -> u8 {
         self.minute
     }
 
+    #[inline]
     pub fn second(&self) -> u8 {
         self.second
     }
 
+    #[inline]
     pub fn frame(&self) -> u8 {
         self.frame
     }
 
+    #[inline]
     pub fn subframe(&self) -> u8 {
         self.subframe
     }
 
+    #[inline]
     pub fn fps(&self) -> Fps {
         self.fps
     }
 
+    #[inline]
     pub fn second_f32(&self) -> f32 {
         self.second as f32
             + ((self.frame as f32 + self.subframe as f32 / 100.0) / self.fps.as_f32())
@@ -564,6 +591,7 @@ impl Fps {
     }
 
     /// Converts an integer representing the semantic fps to an `Fps` value (ie. `24` -> `Fps24`).
+    #[inline]
     pub fn from_int(raw: u8) -> Option<Fps> {
         Some(match raw {
             24 => Fps::Fps24,
@@ -575,6 +603,7 @@ impl Fps {
     }
 
     /// Get the integral approximate fps out.
+    #[inline]
     pub fn as_int(self) -> u8 {
         match self {
             Fps::Fps24 => 24,
@@ -585,6 +614,7 @@ impl Fps {
     }
 
     /// Get the actual `f32` fps out.
+    #[inline]
     pub fn as_f32(self) -> f32 {
         match self.as_int() {
             24 => 24.0,

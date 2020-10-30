@@ -26,12 +26,14 @@ pub struct MidiStream<B = DefaultBuffer> {
 }
 impl MidiStream {
     /// Create a new clean midi stream with the default buffer size.
+    #[inline]
     pub fn new() -> MidiStream {
         MidiStream::default()
     }
 }
 impl<B: Buffer> MidiStream<B> {
     /// Create a new clean midi stream using the given data buffer.
+    #[inline]
     pub fn with_buffer(mut buf: B) -> MidiStream<B> {
         buf.clear();
         MidiStream {
@@ -40,12 +42,14 @@ impl<B: Buffer> MidiStream<B> {
         }
     }
 
+    #[inline]
     fn event(&mut self, status: u8, mut handle_ev: impl FnMut(LiveEvent)) {
         if let Ok(ev) = LiveEvent::read(status, self.data.as_slice()) {
             handle_ev(ev);
         }
     }
 
+    #[inline]
     fn feed_byte(&mut self, byte: u8, mut handle_ev: impl FnMut(LiveEvent)) {
         if let Some(byte) = u7::try_from(byte) {
             //Data byte
@@ -138,13 +142,16 @@ pub trait Buffer {
 /// A `Buffer` with virtually unlimited capacity.
 #[cfg(feature = "alloc")]
 impl Buffer for Vec<u7> {
+    #[inline]
     fn push(&mut self, data: &[u7]) -> StdResult<(), ()> {
         self.extend_from_slice(data);
         Ok(())
     }
+    #[inline]
     fn clear(&mut self) {
         Vec::clear(self)
     }
+    #[inline]
     fn as_slice(&self) -> &[u7] {
         self
     }
@@ -190,6 +197,7 @@ macro_rules! stack_buffer {
             len: usize,
         }
         impl core::hash::Hash for $name {
+            #[inline]
             fn hash<H: core::hash::Hasher>(&self, h: &mut H) {
                 h.write($crate::num::u7::slice_as_int(&self.buf[..self.len]));
                 h.write(&[0xFF]);
@@ -207,6 +215,7 @@ macro_rules! stack_buffer {
         }
         impl $name {
             pub const MAX_CAP: usize = $size;
+            #[inline]
             $($pub)? const fn new() -> $name {
                 $name {
                     buf: [$crate::num::u7::new(0); $size],
@@ -215,11 +224,13 @@ macro_rules! stack_buffer {
             }
         }
         impl core::default::Default for $name {
+            #[inline]
             fn default() -> $name {
                 Self::new()
             }
         }
         impl $crate::stream::Buffer for $name {
+            #[inline]
             fn push(&mut self, data: &[$crate::num::u7]) -> core::result::Result<(), ()> {
                 let new_len = self.len + data.len();
                 if new_len > Self::MAX_CAP {
@@ -230,9 +241,11 @@ macro_rules! stack_buffer {
                     Ok(())
                 }
             }
+            #[inline]
             fn clear(&mut self) {
                 self.len = 0;
             }
+            #[inline]
             fn as_slice(&self) -> &[$crate::num::u7] {
                 &self.buf[..self.len]
             }
@@ -294,14 +307,17 @@ mod default_buf_impl {
     }
     impl DefaultBuffer {
         const MAX_CAP: usize = 256 * 1024;
+        #[inline]
         pub const fn max_cap(&self) -> usize {
             Self::MAX_CAP
         }
+        #[inline]
         pub const fn new() -> DefaultBuffer {
             DefaultBuffer { buf: Vec::new() }
         }
     }
     impl Buffer for DefaultBuffer {
+        #[inline]
         fn push(&mut self, data: &[u7]) -> StdResult<(), ()> {
             if self.buf.len() + data.len() > Self::MAX_CAP {
                 Err(())
@@ -310,9 +326,11 @@ mod default_buf_impl {
                 Ok(())
             }
         }
+        #[inline]
         fn clear(&mut self) {
             self.buf.clear()
         }
+        #[inline]
         fn as_slice(&self) -> &[u7] {
             &self.buf[..]
         }
@@ -337,9 +355,11 @@ mod default_buf_impl {
         }
     }
     impl DefaultBuffer {
+        #[inline]
         pub const fn max_cap(&self) -> usize {
             InnerBuf::MAX_CAP
         }
+        #[inline]
         pub const fn new() -> DefaultBuffer {
             DefaultBuffer {
                 buf: InnerBuf::new(),
@@ -347,12 +367,15 @@ mod default_buf_impl {
         }
     }
     impl Buffer for DefaultBuffer {
+        #[inline]
         fn push(&mut self, data: &[u7]) -> StdResult<(), ()> {
             self.buf.push(data)
         }
+        #[inline]
         fn clear(&mut self) {
             self.buf.clear()
         }
+        #[inline]
         fn as_slice(&self) -> &[u7] {
             self.buf.as_slice()
         }

@@ -24,6 +24,7 @@ pub trait Write {
     /// Create an "invalid input"-style error from a string literal.
     fn invalid_input(msg: &'static str) -> Self::Error;
     /// Make this writer seekable, if possible.
+    #[inline]
     fn make_seekable(&mut self) -> Option<&mut Self::Seekable> {
         None
     }
@@ -58,6 +59,7 @@ impl<W> Clone for NotSeekable<W> {
 }
 impl<W> Copy for NotSeekable<W> {}
 impl<W> NotSeekable<W> {
+    #[inline]
     pub fn as_never(&self) -> ! {
         match self.never {}
     }
@@ -66,18 +68,22 @@ impl<W> NotSeekable<W> {
 impl<W: Write> Write for NotSeekable<W> {
     type Error = W::Error;
     type Seekable = Self;
+    #[inline]
     fn write(&mut self, _: &[u8]) -> WriteResult<Self> {
         self.as_never()
     }
+    #[inline]
     fn invalid_input(msg: &'static str) -> W::Error {
         W::invalid_input(msg)
     }
 }
 
 impl<W: Write> Seek for NotSeekable<W> {
+    #[inline]
     fn tell(&mut self) -> StdResult<u64, W::Error> {
         self.as_never()
     }
+    #[inline]
     fn write_at(&mut self, _: &[u8], _: u64) -> WriteResult<Self> {
         self.as_never()
     }
@@ -86,12 +92,15 @@ impl<W: Write> Seek for NotSeekable<W> {
 impl<'a, W: Write> Write for &'a mut W {
     type Error = W::Error;
     type Seekable = W::Seekable;
+    #[inline]
     fn write(&mut self, buf: &[u8]) -> WriteResult<W> {
         W::write(self, buf)
     }
+    #[inline]
     fn invalid_input(msg: &'static str) -> W::Error {
         W::invalid_input(msg)
     }
+    #[inline]
     fn make_seekable(&mut self) -> Option<&mut W::Seekable> {
         W::make_seekable(self)
     }
@@ -101,22 +110,27 @@ impl<'a, W: Write> Write for &'a mut W {
 impl Write for Vec<u8> {
     type Error = &'static str;
     type Seekable = Self;
+    #[inline]
     fn write(&mut self, buf: &[u8]) -> WriteResult<Self> {
         self.extend_from_slice(buf);
         Ok(())
     }
+    #[inline]
     fn invalid_input(msg: &'static str) -> &'static str {
         msg
     }
+    #[inline]
     fn make_seekable(&mut self) -> Option<&mut Self> {
         Some(self)
     }
 }
 #[cfg(feature = "alloc")]
 impl Seek for Vec<u8> {
+    #[inline]
     fn tell(&mut self) -> StdResult<u64, Self::Error> {
         Ok(self.len() as u64)
     }
+    #[inline]
     fn write_at(&mut self, buf: &[u8], pos: u64) -> WriteResult<Self> {
         let out = self
             .get_mut(pos as usize..pos as usize + buf.len())
@@ -136,6 +150,7 @@ pub struct Cursor<'a> {
 }
 impl<'a> Cursor<'a> {
     /// Create a new cursor located at the start of the given buffer.
+    #[inline]
     pub fn new(buffer: &mut [u8]) -> Cursor {
         Cursor {
             buf: buffer,
@@ -144,6 +159,11 @@ impl<'a> Cursor<'a> {
     }
 
     /// Create a cursor from a buffer and the cursor within it.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `cursor > buffer.len()`.
+    #[inline]
     pub fn from_parts(buffer: &mut [u8], cursor: usize) -> Cursor {
         assert!(
             cursor <= buffer.len(),
@@ -158,51 +178,61 @@ impl<'a> Cursor<'a> {
     /// Yield the underlying buffer and the cursor within it.
     ///
     /// The cursor is guaranteed to be `cursor <= buffer.len()`.
+    #[inline]
     pub fn into_parts(self) -> (&'a mut [u8], usize) {
         (self.buf, self.cur)
     }
 
     /// Get a reference to the whole underlying buffer.
+    #[inline]
     pub fn slice(&self) -> &[u8] {
         self.buf
     }
 
     /// Get a mutable reference to the whole underlying buffer.
+    #[inline]
     pub fn slice_mut(&mut self) -> &mut [u8] {
         self.buf
     }
 
     /// Get the position of the cursor.
+    #[inline]
     pub fn cursor(&self) -> usize {
         self.cur
     }
 
     /// Get a reference to the written portion of the buffer.
+    #[inline]
     pub fn written(&self) -> &[u8] {
         &self.buf[..self.cur]
     }
 
     /// Get a reference to the portion of the buffer that is not yet written.
+    #[inline]
     pub fn unwritten(&self) -> &[u8] {
         &self.buf[self.cur..]
     }
 
     /// Split the buffer into the written and unwritten parts.
+    #[inline]
     pub fn split(&self) -> (&[u8], &[u8]) {
         self.buf.split_at(self.cur)
     }
 
     /// Get a mutable reference to the written portion of the buffer.
+    #[inline]
     pub fn written_mut(&mut self) -> &mut [u8] {
         &mut self.buf[..self.cur]
     }
 
     /// Get a mutable reference to the portion of the buffer that is not yet written.
+    #[inline]
     pub fn unwritten_mut(&mut self) -> &mut [u8] {
         &mut self.buf[self.cur..]
     }
 
     /// Split the buffer into the written and unwritten parts.
+    #[inline]
     pub fn split_mut(&mut self) -> (&mut [u8], &mut [u8]) {
         self.buf.split_at_mut(self.cur)
     }
@@ -210,6 +240,7 @@ impl<'a> Cursor<'a> {
 impl<'a> Write for Cursor<'a> {
     type Error = CursorError;
     type Seekable = Self;
+    #[inline]
     fn write(&mut self, buf: &[u8]) -> WriteResult<Self> {
         //Cannot overflow because `cur <= buf.len()` is always true.
         //Therefore, in order for this to overflow more than the whole address space must be
@@ -226,17 +257,21 @@ impl<'a> Write for Cursor<'a> {
             Ok(())
         }
     }
+    #[inline]
     fn invalid_input(msg: &'static str) -> CursorError {
         CursorError::InvalidInput(msg)
     }
+    #[inline]
     fn make_seekable(&mut self) -> Option<&mut Self> {
         Some(self)
     }
 }
 impl<'a> Seek for Cursor<'a> {
+    #[inline]
     fn tell(&mut self) -> StdResult<u64, Self::Error> {
         Ok(self.cur as u64)
     }
+    #[inline]
     fn write_at(&mut self, buf: &[u8], pos: u64) -> WriteResult<Self> {
         let out = self
             .buf
@@ -258,6 +293,7 @@ pub enum CursorError {
 impl<'a> Write for &'a mut [u8] {
     type Error = CursorError;
     type Seekable = NotSeekable<Self>;
+    #[inline]
     fn write(&mut self, buf: &[u8]) -> WriteResult<Self> {
         if buf.len() > self.len() {
             self.copy_from_slice(&buf[..self.len()]);
@@ -270,6 +306,7 @@ impl<'a> Write for &'a mut [u8] {
             Ok(())
         }
     }
+    #[inline]
     fn invalid_input(msg: &'static str) -> CursorError {
         CursorError::InvalidInput(msg)
     }
@@ -284,9 +321,11 @@ pub struct IoWrap<T>(pub T);
 impl<T: io::Write> Write for IoWrap<T> {
     type Error = io::Error;
     type Seekable = NotSeekable<Self>;
+    #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<()> {
         io::Write::write_all(&mut self.0, buf)
     }
+    #[inline]
     fn invalid_input(msg: &'static str) -> io::Error {
         io::Error::new(io::ErrorKind::InvalidInput, msg)
     }
@@ -302,21 +341,26 @@ pub struct SeekableWrap<T>(pub T);
 impl<T: io::Write + io::Seek> Write for SeekableWrap<T> {
     type Error = io::Error;
     type Seekable = Self;
+    #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<()> {
         io::Write::write_all(&mut self.0, buf)
     }
+    #[inline]
     fn invalid_input(msg: &'static str) -> io::Error {
         io::Error::new(io::ErrorKind::InvalidInput, msg)
     }
+    #[inline]
     fn make_seekable(&mut self) -> Option<&mut Self> {
         Some(self)
     }
 }
 #[cfg(feature = "std")]
 impl<T: io::Write + io::Seek> Seek for SeekableWrap<T> {
+    #[inline]
     fn tell(&mut self) -> io::Result<u64> {
         io::Seek::seek(&mut self.0, io::SeekFrom::Current(0))
     }
+    #[inline]
     fn write_at(&mut self, buf: &[u8], pos: u64) -> io::Result<()> {
         io::Seek::seek(&mut self.0, io::SeekFrom::Start(pos))?;
         self.write(buf)?;
@@ -330,10 +374,12 @@ pub(crate) struct WriteCounter(pub u64);
 impl Write for WriteCounter {
     type Error = &'static str;
     type Seekable = NotSeekable<Self>;
+    #[inline]
     fn write(&mut self, buf: &[u8]) -> WriteResult<Self> {
         self.0 += buf.len() as u64;
         Ok(())
     }
+    #[inline]
     fn invalid_input(msg: &'static str) -> &'static str {
         msg
     }

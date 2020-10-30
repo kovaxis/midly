@@ -63,6 +63,7 @@ impl<'a> LiveEvent<'a> {
     ///
     /// This method can be used to write messages to be consumed by OS APIs.
     /// Also see the example in the root crate documentation.
+    #[inline]
     pub fn write<W: Write>(&self, out: &mut W) -> WriteResult<W> {
         self.write_with_running_status(&mut None, out)
     }
@@ -99,6 +100,7 @@ impl<'a> LiveEvent<'a> {
     ///
     /// This method is only available with the `std` feature enabled.
     #[cfg(feature = "std")]
+    #[inline]
     pub fn write_std<W: io::Write>(&self, out: W) -> io::Result<()> {
         self.write(&mut IoWrap(out))
     }
@@ -109,6 +111,7 @@ impl<'a> LiveEvent<'a> {
     ///
     /// This method is only available with the `std` feature enabled.
     #[cfg(feature = "std")]
+    #[inline]
     pub fn write_std_with_running_status<W: io::Write>(
         &self,
         running_status: &mut Option<u8>,
@@ -322,6 +325,7 @@ pub enum SystemRealtime {
 }
 impl SystemRealtime {
     /// Create a system realtime event from its id byte.
+    #[inline]
     pub fn new(status: u8) -> SystemRealtime {
         use SystemRealtime::*;
         match status {
@@ -339,6 +343,7 @@ impl SystemRealtime {
     }
 
     /// Get the id byte for this system realtime message.
+    #[inline]
     pub fn encode(self) -> u8 {
         use SystemRealtime::*;
         match self {
