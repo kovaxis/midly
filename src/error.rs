@@ -82,6 +82,11 @@ pub struct Error {
     inner: self::error_impl::ErrorInner,
 }
 impl Error {
+    /// Create a new error with the given `ErrorKind`.
+    pub fn new(kind: &'static ErrorKind) -> Error {
+        Error::from(kind)
+    }
+
     /// More information about the error itself.
     pub fn kind(&self) -> ErrorKind {
         ErrorExt::kind(self)

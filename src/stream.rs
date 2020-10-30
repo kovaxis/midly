@@ -209,7 +209,7 @@ macro_rules! stack_buffer {
             pub const MAX_CAP: usize = $size;
             $($pub)? const fn new() -> $name {
                 $name {
-                    buf: [$crate::num::u7::from_int_lossy(0); $size],
+                    buf: [$crate::num::u7::new(0); $size],
                     len: 0,
                 }
             }

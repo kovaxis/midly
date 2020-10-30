@@ -360,24 +360,22 @@ pub struct PitchBend(pub u14);
 impl PitchBend {
     /// The minimum value of `0x0000`, indicating full bend downwards.
     pub const fn min_raw_value() -> PitchBend {
-        PitchBend(u14::from_int_lossy(0x0000))
+        PitchBend(u14::new(0x0000))
     }
     /// The middle value of `0x2000`, indicating no bend.
     pub const fn mid_raw_value() -> PitchBend {
-        PitchBend(u14::from_int_lossy(0x2000))
+        PitchBend(u14::new(0x2000))
     }
     /// The maximum value of `0x3FFF`, indicating full bend upwards.
     pub const fn max_raw_value() -> PitchBend {
-        PitchBend(u14::from_int_lossy(0x3FFF))
+        PitchBend(u14::new(0x3FFF))
     }
 
     /// Create a `PitchBend` value from an int in the range `[-0x2000, 0x1FFF]`.
     ///
     /// Integers outside this range will be clamped.
     pub fn from_int(int: i16) -> PitchBend {
-        PitchBend(u14::from_int_lossy(
-            (int.max(-0x2000).min(0x1FFF) + 0x2000) as u16,
-        ))
+        PitchBend(u14::new((int.max(-0x2000).min(0x1FFF) + 0x2000) as u16))
     }
     /// Create a `PitchBend` value from a number in the range `[-1.0, 1.0)`.
     ///

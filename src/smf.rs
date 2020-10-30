@@ -562,6 +562,16 @@ pub struct TrackIter<'a> {
     track_count_hint: u16,
 }
 impl<'a> TrackIter<'a> {
+    /// Create an event iterator from raw SMF bytes, excluding the header.
+    ///
+    /// The main way to obtain raw SMF without a header is the [`unread`](#method.unread) method.
+    pub fn new(raw: &[u8]) -> TrackIter {
+        TrackIter {
+            chunks: ChunkIter::new(raw),
+            track_count_hint: 0,
+        }
+    }
+
     /// Peek at the remaining unparsed bytes in the file.
     pub fn unread(&self) -> &'a [u8] {
         self.chunks.raw

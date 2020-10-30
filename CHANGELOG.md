@@ -3,7 +3,7 @@
 
 ### 0.5.1
 
-
+- Added `new` constructors everywhere they made sense.
 
 ## 0.5
 
@@ -85,11 +85,4 @@
 
 # Planned changes
 
-- Unify names for MIDI/channel messages.
-- Check thoroughly which parts of the API are exposed.
-- Write docs.
-- Expose a `std::io::Write`-based write API.
-- Add `new` methods to all types to be more uniform.
-- Try to optimize reading by using a cursor instead of a naive advancing slice.
-- Revert stream to fire MIDI messages as soon as enough bytes arrive (this is pretty useful in
-    real life).
+- Move to a cursor approach instead of an advancing slice, for performance.

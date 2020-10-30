@@ -115,6 +115,12 @@ macro_rules! restricted_int {
 
             /// Creates a restricted int from its non-restricted counterpart by masking off the
             /// extra bits.
+            pub const fn new(raw: $inner) -> $name {
+                $name (raw & Self::MASK)
+            }
+
+            /// Creates a restricted int from its non-restricted counterpart by masking off the
+            /// extra bits.
             pub const fn from_int_lossy(raw: $inner) -> $name {
                 $name (raw & Self::MASK)
             }
