@@ -337,7 +337,7 @@ mod default_buf_impl {
         }
     }
     impl DefaultBuffer {
-        pub fn max_cap(&self) -> usize {
+        pub const fn max_cap(&self) -> usize {
             InnerBuf::MAX_CAP
         }
         pub const fn new() -> DefaultBuffer {
