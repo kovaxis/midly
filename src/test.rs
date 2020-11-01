@@ -513,4 +513,11 @@ mod parse {
         println!("hellsung: \"{}\"", String::from_utf8_lossy(hellsung));
         drop(arena);
     }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn arena_is_send() {
+        fn assert_send<T: Send>() {}
+        assert_send::<crate::Arena>();
+    }
 }

@@ -148,6 +148,10 @@ impl Drop for Arena {
         self.clear();
     }
 }
+// SAFETY: There is no intrinsic issue with moving the arena to another thread, since moving the
+// arena guarantees there are no references into it. Any buffers left inside the arena will simply
+// be freed from the other thread.
+unsafe impl Send for Arena {}
 impl fmt::Debug for Arena {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         //TODO: Once the `len()` method for raw pointers to slices is stabilized, add better
