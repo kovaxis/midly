@@ -1,6 +1,10 @@
 
 # Version changelog
 
+### 0.5.2
+
+
+
 ### 0.5.1
 
 - Added `new` constructors everywhere they made sense.
