@@ -6,6 +6,7 @@
 - Added `new` constructors everywhere they made sense.
 - Exposed `EventBytemapIter`, which was accidentally private.
 - Fixed `DefaultBuffer::max_cap` not being a `const fn` if the `alloc` feature was disabled.
+- Implement `Send` for `Arena`.
 
 ## 0.5
 
