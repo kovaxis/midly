@@ -55,6 +55,27 @@ impl<'a> TrackEvent<'a> {
     }
 }
 
+/// Represents a parsed SMF track event with absolute timing.
+///
+/// Consists of a time with respect to the beginning of the track and the actual track event.
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
+pub struct AbsoluteTrackEvent<'a> {
+    /// How many MIDI ticks after the beginning of the track.
+    pub absolute_time: u64,
+    /// The type of event along with event-specific data.
+    pub kind: TrackEventKind<'a>,
+}
+
+impl<'a> AbsoluteTrackEvent<'a> {
+    /// Create a new `AbsoluteTrackEvent` with the given absolute time and `track_event_kind`.
+    pub fn new(absolute_time: u64, track_event_kind: TrackEventKind<'a>) -> Self {
+        AbsoluteTrackEvent {
+            absolute_time,
+            kind: track_event_kind,
+        }
+    }
+}
+
 /// Represents the different kinds of SMF events and their associated data.
 ///
 /// It notably does *not* include the timing of the event; the `TrackEvent` struct is responsible

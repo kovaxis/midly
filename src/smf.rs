@@ -1,7 +1,7 @@
 //! Specific to the SMF packaging of MIDI streams.
 
 use crate::{
-    event::TrackEvent,
+    event::{TrackEvent, AbsoluteTrackEvent},
     prelude::*,
     primitive::{Format, Timing},
     riff,
@@ -830,6 +830,17 @@ impl<'a> EventIter<'a> {
         }
     }
 
+    /// Create an [`AbsoluteEventIter`] that starts at the current time.
+    ///
+    /// [`AbsoluteEventIter`]: ./struct.AbsoluteEventIter.html
+    #[inline]
+    pub fn absolute(self) -> AbsoluteEventIter<'a> {
+        AbsoluteEventIter {
+            offset: 0,
+            inner: self
+        }
+    }
+
     /// Collects the remaining unparsed events into a `Track`.
     ///
     /// This function is a smarter version of `Iterator::collect`, as it guesses allocations and
@@ -847,6 +858,39 @@ impl<'a> Iterator for EventIter<'a> {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next()
+    }
+}
+
+/// An iterator over the events of a single track, with absolute timing.
+/// Yielded by the [`absolute`] method.
+///
+/// This iterator is lazy, it parses events as it goes, and therefore produces `Result<AbsoluteTrackEvent>>`
+/// rather than `AbsoluteTrackEvent`.
+///
+/// This type is always available, even in `no_std` environments.
+///
+/// [`absolute`]: ./struct.EventIter.html#method.absolute
+#[derive(Clone, Debug)]
+pub struct AbsoluteEventIter<'a> {
+    offset: u64,
+    inner: EventIter<'a>,
+}
+
+impl<'a> AbsoluteEventIter<'a> {
+    /// Get the number of MIDI ticks at the current position (last read event).
+    pub fn ticks(&self) -> u64 {
+        self.offset
+    }
+}
+
+impl<'a> Iterator for AbsoluteEventIter<'a> {
+    type Item = Result<AbsoluteTrackEvent<'a>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(self.inner.next()?.map(|event| {
+            self.offset += event.delta.as_int() as u64;
+            AbsoluteTrackEvent::new(self.offset, event.kind)
+        }))
     }
 }
 
