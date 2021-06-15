@@ -7,7 +7,7 @@ include = [
   "/src/*",
   "/Cargo.toml",
 ]
-description = "Fast MIDI parser and writer both for files and standalone MIDI events"
+description = "Fast MIDI decoder and encoder both for .mid files and real-time MIDI events"
 repository = "https://github.com/negamartin/midly"
 readme = "README.md"
 keywords = ["midi", "no_std", "audio", "parser"]
