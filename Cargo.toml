@@ -37,7 +37,7 @@ std = ["alloc"]
 # Depends on the `std` feature.
 #
 # Multithreaded parsing is automatically disabled for tiny MIDI files.
-# Currently multithreading brings in the `rayon` dependency.
+# Currently, multithreading brings in the `rayon` dependency.
 parallel = ["std", "rayon"]
 
 [dependencies]

@@ -8,10 +8,11 @@ use crate::{
 
 /// Represents a parsed SMF track event.
 ///
-/// Consists of a delta time with respect to the previous event and the actual track event.
+/// Consists of a delta time (in MIDI ticks relative to the previous event) and the actual track
+/// event.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub struct TrackEvent<'a> {
-    /// How many MIDI ticks after the previous event should this event fire off.
+    /// How many MIDI ticks after the previous event should this event fire.
     pub delta: u28,
     /// The type of event along with event-specific data.
     pub kind: TrackEventKind<'a>,

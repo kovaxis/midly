@@ -25,16 +25,27 @@ use crate::{event::TrackEventKind, Arena};
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum LiveEvent<'a> {
     /// A MIDI message associated with a channel, carrying musical data.
+    ///
+    /// Status byte in the range `0x80 ..= 0xEF`.
     Midi { channel: u4, message: MidiMessage },
     /// A System Common message, as defined by the MIDI spec, including System Exclusive events.
+    ///
+    /// Status byte in the range `0xF0 ..= 0xF7`.
     Common(SystemCommon<'a>),
     /// A one-byte System Realtime message.
+    ///
+    /// Status byte in the range `0xF8 ..= 0xFF`.
     Realtime(SystemRealtime),
 }
 impl<'a> LiveEvent<'a> {
     /// Parse a complete MIDI message from its raw bytes.
     ///
-    /// This method can be used to parse raw MIDI bytes coming from an OS API.
+    /// This method can be used to parse raw MIDI bytes coming from an OS API (ie. a status byte
+    /// in the range `0x80 ..= 0xFF` followed by data bytes in the range `0x00 ..= 0x7F`).
+    ///
+    /// Note that this function will not read the "meta messages" present in `.mid` files, since
+    /// those cannot appear in a live MIDI connection, only in offline files.
+    ///
     /// Also see the example in the root crate documentation.
     pub fn parse(mut raw: &'a [u8]) -> Result<LiveEvent<'a>> {
         let status = raw
