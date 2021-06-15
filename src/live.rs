@@ -58,12 +58,18 @@ impl<'a> LiveEvent<'a> {
     pub(crate) fn read(status: u8, data: &[u7]) -> Result<LiveEvent> {
         match status {
             0x80..=0xEF => {
+                // MIDI message
                 let data = MidiMessage::get_data_u7(status, data)?;
                 let (channel, message) = MidiMessage::read(status, data);
                 Ok(LiveEvent::Midi { channel, message })
             }
+            0xF8..=0xFF => {
+                // System Realtime
+                let ev = SystemRealtime::new(status);
+                Ok(LiveEvent::Realtime(ev))
+            }
             _ => {
-                //System Common event
+                // System Common
                 let ev = SystemCommon::read(status, data)?;
                 Ok(LiveEvent::Common(ev))
             }

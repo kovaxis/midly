@@ -249,6 +249,27 @@ macro_rules! restricted_int {
                 )
             }
         }
+        impl PartialEq<$inner> for $name {
+            fn eq(&self, rhs: &$inner) -> bool {
+                self.as_int() == *rhs
+            }
+        }
+        impl PartialOrd<$inner> for $name {
+            fn partial_cmp(&self, rhs: &$inner) -> Option<core::cmp::Ordering> {
+                Some(self.as_int().cmp(rhs))
+            }
+        }
+        impl PartialEq<$name> for $inner {
+            fn eq(&self, rhs: &$name) -> bool {
+                *self == rhs.as_int()
+            }
+        }
+        impl PartialOrd<$name> for $inner {
+            fn partial_cmp(&self, rhs: &$name) -> Option<core::cmp::Ordering> {
+                Some(self.cmp(&rhs.as_int()))
+            }
+        }
+
         $( int_feature!{$name ; $inner : $feature} )*
     };
 }

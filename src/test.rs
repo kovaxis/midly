@@ -223,6 +223,65 @@ fn test_live_api(file: &str) {
     }
 }
 
+#[test]
+fn live_system() {
+    use crate::{
+        live::{LiveEvent, MtcQuarterFrameMessage, SystemCommon, SystemRealtime},
+        num::u7,
+    };
+
+    // System common
+    assert_eq!(
+        LiveEvent::parse(&[0xF0, b'h', b'e', b'l', b'l', b'o', 0xF7]).unwrap(),
+        LiveEvent::Common(SystemCommon::SysEx(u7::slice_from_int(b"hello")))
+    );
+    assert_eq!(
+        LiveEvent::parse(&[0xF1, 0x36]).unwrap(),
+        LiveEvent::Common(SystemCommon::MidiTimeCodeQuarterFrame(
+            MtcQuarterFrameMessage::SecondsHigh,
+            6.into()
+        ))
+    );
+    assert_eq!(
+        LiveEvent::parse(&[0xF2, 0x08, 0x01]).unwrap(),
+        LiveEvent::Common(SystemCommon::SongPosition(136.into()))
+    );
+    assert_eq!(
+        LiveEvent::parse(&[0xF3, 0x01]).unwrap(),
+        LiveEvent::Common(SystemCommon::SongSelect(1.into()))
+    );
+    assert_eq!(
+        LiveEvent::parse(&[0xF6]).unwrap(),
+        LiveEvent::Common(SystemCommon::TuneRequest)
+    );
+
+    // System realtime
+    assert_eq!(
+        LiveEvent::parse(&[0xF8]).unwrap(),
+        LiveEvent::Realtime(SystemRealtime::TimingClock)
+    );
+    assert_eq!(
+        LiveEvent::parse(&[0xFA]).unwrap(),
+        LiveEvent::Realtime(SystemRealtime::Start)
+    );
+    assert_eq!(
+        LiveEvent::parse(&[0xFB]).unwrap(),
+        LiveEvent::Realtime(SystemRealtime::Continue)
+    );
+    assert_eq!(
+        LiveEvent::parse(&[0xFC]).unwrap(),
+        LiveEvent::Realtime(SystemRealtime::Stop)
+    );
+    assert_eq!(
+        LiveEvent::parse(&[0xFE]).unwrap(),
+        LiveEvent::Realtime(SystemRealtime::ActiveSensing)
+    );
+    assert_eq!(
+        LiveEvent::parse(&[0xFF]).unwrap(),
+        LiveEvent::Realtime(SystemRealtime::Reset)
+    );
+}
+
 fn test_stream_api(file: &str) {
     use crate::{
         live::{LiveEvent, SystemCommon, SystemRealtime},

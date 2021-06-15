@@ -3,7 +3,8 @@
 
 ### 0.5.2
 
-
+- Fix parsing of `LiveEvent::Realtime`.
+- Add implementations of `PartialEq` between restricted ints and primitive ints.
 
 ### 0.5.1
 
