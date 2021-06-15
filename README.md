@@ -1,9 +1,8 @@
 # Midly
 
-Midly is a MIDI parser and writer designed for efficiency and completeness, making as few
-allocations as possible and using multiple threads to parse and write MIDI tracks in parallel.
+Midly is a MIDI decoder and encoder designed for efficiency and completeness, supporting both
+`.mid` files and real-time MIDI streams while making minimal allocations.
 
-The behaviour of the parser is also configurable through crate features.
 See the crate-level documentation for the available features and `no_std` support.
 
 ## Getting started
@@ -34,7 +33,7 @@ smf.header.format = midly::Format::Sequential;
 smf.save("PiRewritten.mid").unwrap();
 ```
 
-Or use the `LiveEvent` type to parse individual MIDI events:
+Or use the `LiveEvent` type to parse real-time MIDI events:
 
 ```rust
 use midly::{live::LiveEvent, MidiMessage};
@@ -55,3 +54,21 @@ fn on_midi(event: &[u8]) {
 
 Most types to be imported are on the crate root and are documented in-place.
 Check the [crate documentation](https://docs.rs/midly) for more information.
+
+## Speed
+
+Although performance is not critical in a MIDI library, it still is an important objective of the
+`midly` library, providing automatic multithreading and minimal allocations.
+The following chart presents benchmark results against other MIDI libraries in the ecosystem capable
+of reading `.mid` files. The benchmarks were done on a warm file cache.
+
+| File name       | File size | `rimd 0.0.1` | `nom-midi 0.5.1` | `midly 0.5.2` |
+| --------------- | --------- | ------------ | ---------------- | ------------- |
+| `Clementi.mid`  | 4 KB      | 11 ms        | Error            | 0.15 ms       |
+| `CrabRave.mid`  | 53 KB     | 145 ms       | 0.55 ms          | 0.26 ms       |
+| `Beethoven.rmi` | 90 KB     | Error        | Error            | 0.48 ms       |
+| `Pi.mid`        | 24 MB     | 66700 ms     | 358 ms           | 85 ms         |
+| `PiDamaged.mid` | 64 KB     | Freeze       | Error            | 0.55 ms       |
+
+The above results are only referential, actual performance depends on the hardware and operating
+system.

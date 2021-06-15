@@ -127,8 +127,10 @@ fn main() {
         }
     } else {
         for midi in midis {
+            //Read file to warm up file cache
+            let size = std::fs::read(midi).map(|b| b.len()).unwrap_or(0);
             //Parse this file
-            eprintln!("parsing file \"{}\"", midi.display());
+            eprintln!("parsing file \"{}\" ({} KB)", midi.display(), size / 1024);
             for &(name, parse) in parsers.iter() {
                 eprint!("  {}: ", name);
                 match use_parser(*parse, &midi) {
