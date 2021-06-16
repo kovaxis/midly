@@ -3,7 +3,7 @@
 
 ### 0.5.3
 
-
+- Add `to_static` methods to drop lifetimed data.
 
 ### 0.5.2
 
