@@ -54,6 +54,17 @@ impl<'a> TrackEvent<'a> {
         self.kind.write(running_status, out)?;
         Ok(())
     }
+
+    /// Remove any lifetimed data from this event to create a `TrackEvent` with `'static`
+    /// lifetime that can be stored and moved everywhere, solving borrow checker issues.
+    ///
+    /// WARNING: Any bytestrings in the input will be replaced by empty bytestrings.
+    pub fn to_static(&self) -> TrackEvent<'static> {
+        TrackEvent {
+            delta: self.delta,
+            kind: self.kind.to_static(),
+        }
+    }
 }
 
 /// Represents the different kinds of SMF events and their associated data.
@@ -191,6 +202,20 @@ impl<'a> TrackEventKind<'a> {
             }
             TrackEventKind::Escape(_data) => None,
             TrackEventKind::Meta(_meta) => None,
+        }
+    }
+
+    /// Remove any lifetimed data from this event to create a `TrackEventKind` with `'static`
+    /// lifetime that can be stored and moved everywhere, solving borrow checker issues.
+    ///
+    /// WARNING: Any bytestrings in the input will be replaced by empty bytestrings.
+    pub fn to_static(&self) -> TrackEventKind<'static> {
+        use self::TrackEventKind::*;
+        match *self {
+            Midi { channel, message } => Midi { channel, message },
+            SysEx(_) => SysEx(b""),
+            Escape(_) => Escape(b""),
+            Meta(meta) => Meta(meta.to_static()),
         }
     }
 }
@@ -461,6 +486,35 @@ pub enum MetaMessage<'a> {
     Unknown(u8, &'a [u8]),
 }
 impl<'a> MetaMessage<'a> {
+    /// Remove any lifetimed data from this event to create a `MidiMessage` with `'static` lifetime
+    /// that can be stored and moved everywhere, solving borrow checker issues.
+    ///
+    /// WARNING: Any bytestrings in the input will be replaced by empty bytestrings.
+    pub fn to_static(&self) -> MetaMessage<'static> {
+        use self::MetaMessage::*;
+        match *self {
+            TrackNumber(v) => TrackNumber(v),
+            Text(_) => Text(b""),
+            Copyright(_) => Copyright(b""),
+            TrackName(_) => TrackName(b""),
+            InstrumentName(_) => InstrumentName(b""),
+            Lyric(_) => Lyric(b""),
+            Marker(_) => Marker(b""),
+            CuePoint(_) => CuePoint(b""),
+            ProgramName(_) => ProgramName(b""),
+            DeviceName(_) => DeviceName(b""),
+            MidiChannel(v) => MidiChannel(v),
+            MidiPort(v) => MidiPort(v),
+            EndOfTrack => EndOfTrack,
+            Tempo(v) => Tempo(v),
+            SmpteOffset(v) => SmpteOffset(v),
+            TimeSignature(v0, v1, v2, v3) => TimeSignature(v0, v1, v2, v3),
+            KeySignature(v0, v1) => KeySignature(v0, v1),
+            SequencerSpecific(_) => SequencerSpecific(b""),
+            Unknown(v, _) => Unknown(v, b""),
+        }
+    }
+
     #[allow(clippy::len_zero)]
     fn read(raw: &mut &'a [u8]) -> Result<MetaMessage<'a>> {
         let type_byte = u8::read(raw).context(err_invalid!("failed to read meta message type"))?;

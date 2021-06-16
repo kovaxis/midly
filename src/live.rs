@@ -137,6 +137,20 @@ impl<'a> LiveEvent<'a> {
         self.write_with_running_status(running_status, &mut IoWrap(out))
     }
 
+    /// Remove any lifetimed data from this event to create a `LiveEvent` with `'static`
+    /// lifetime that can be stored and moved everywhere, solving borrow checker issues.
+    ///
+    /// WARNING: Any bytestrings, including SysEx dumps, will be
+    /// replaced by empty bytestrings.
+    pub fn to_static(&self) -> LiveEvent<'static> {
+        use self::LiveEvent::*;
+        match *self {
+            Midi { channel, message } => Midi { channel, message },
+            Common(sysc) => Common(sysc.to_static()),
+            Realtime(realt) => Realtime(realt),
+        }
+    }
+
     /// Convert this `LiveEvent` into a static [`TrackEventKind`](../enum.TrackEventKind.html),
     /// which can be written to a `.mid` file.
     ///
@@ -269,6 +283,22 @@ impl<'a> SystemCommon<'a> {
                 out.write(&[*status])?;
                 out.write(u7::slice_as_int(data))
             }
+        }
+    }
+
+    /// Remove any lifetimed data from this event to create a `SystemCommon` with `'static`
+    /// lifetime that can be stored and moved everywhere, solving borrow checker issues.
+    ///
+    /// WARNING: Any bytestrings (ie. SysEx dumps) will be replaced by empty bytestrings.
+    pub fn to_static(&self) -> SystemCommon<'static> {
+        use self::SystemCommon::*;
+        match *self {
+            SysEx(_) => SysEx(u7::slice_from_int(b"")),
+            MidiTimeCodeQuarterFrame(v0, v1) => MidiTimeCodeQuarterFrame(v0, v1),
+            SongPosition(v) => SongPosition(v),
+            SongSelect(v) => SongSelect(v),
+            TuneRequest => TuneRequest,
+            Undefined(v, _) => Undefined(v, u7::slice_from_int(b"")),
         }
     }
 }

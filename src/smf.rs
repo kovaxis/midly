@@ -126,6 +126,34 @@ impl<'a> Smf<'a> {
         }
         save_impl(self, path.as_ref())
     }
+
+    /// Remove any lifetimed data from this event to create an `Smf` with `'static`
+    /// lifetime that can be stored and moved everywhere, solving borrow checker issues.
+    ///
+    /// This method creates a copy of the `Smf` structure. See the `make_static` method for an
+    /// in-place solution.
+    ///
+    /// WARNING: Any bytestrings, including meta messages, SysEx dumps and escape sequences will be
+    /// replaced by empty bytestrings.
+    pub fn to_static(&self) -> Smf<'static> {
+        self.clone().make_static()
+    }
+
+    /// Remove any lifetimed data from this event to create an `Smf` with `'static`
+    /// lifetime that can be stored and moved everywhere, solving borrow checker issues.
+    ///
+    /// This method consumes the `Smf` structure, reusing the backing memory.
+    ///
+    /// WARNING: Any bytestrings, including meta messages, SysEx dumps and escape sequences will be
+    /// replaced by empty bytestrings.
+    pub fn make_static(mut self) -> Smf<'static> {
+        for track in self.tracks.iter_mut() {
+            for ev in track.iter_mut() {
+                *ev = ev.to_static();
+            }
+        }
+        unsafe { mem::transmute::<Smf<'a>, Smf<'static>>(self) }
+    }
 }
 
 /// A track, represented as a `Vec` of events along with their originating bytes.
