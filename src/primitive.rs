@@ -668,3 +668,13 @@ impl Fps {
         }
     }
 }
+impl From<Fps> for f32 {
+    fn from(x: Fps) -> Self {
+        x.as_f32()
+    }
+}
+impl From<Fps> for u8 {
+    fn from(x: Fps) -> Self {
+        x.as_int()
+    }
+}
