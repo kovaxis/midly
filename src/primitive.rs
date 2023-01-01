@@ -269,24 +269,24 @@ macro_rules! restricted_int {
                 Some(self.cmp(&rhs.as_int()))
             }
         }
-        impl std::ops::Add for $name {
+        impl core::ops::Add for $name {
             type Output = Self;
             fn add(self, other: Self) -> Self {
                 Self::new(self.as_int() + other.as_int())
             }
         }
-        impl std::ops::Sub for $name {
+        impl core::ops::Sub for $name {
             type Output = Self;
             fn sub(self, other: Self) -> Self {
                 Self::new(self.as_int() - other.as_int())
             }
         }
-        impl std::ops::AddAssign for $name {
+        impl core::ops::AddAssign for $name {
             fn add_assign(&mut self, other: Self) {
                 *self = *self + other
             }
         }
-        impl std::ops::SubAssign for $name {
+        impl core::ops::SubAssign for $name {
             fn sub_assign(&mut self, other: Self) {
                 *self = *self - other
             }
