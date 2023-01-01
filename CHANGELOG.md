@@ -4,6 +4,8 @@
 ### 0.5.3
 
 - Add `to_static` methods to drop lifetimed data.
+- Implement `From<Fps>` for `u8` and `f32`.
+- Implement `Add`, `AddAssign`, `Sub` and `SubAssign` for the restricted primitive integers.
 
 ### 0.5.2
 
