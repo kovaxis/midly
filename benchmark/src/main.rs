@@ -12,6 +12,7 @@ const PARSERS: &[(&str, fn(&Path) -> Result<usize, String>)] = &[
     (&"midly", parse_midly),
     (&"nom-midi", parse_nom),
     (&"rimd", parse_rimd),
+    (&"augmented-midi", parse_augmented_midi),
 ];
 
 fn parse_midly(path: &Path) -> Result<usize, String> {
@@ -31,6 +32,14 @@ fn parse_nom(path: &Path) -> Result<usize, String> {
 fn parse_rimd(path: &Path) -> Result<usize, String> {
     let smf = rimd::SMF::from_file(path).map_err(|err| format!("{}", err))?;
     Ok(smf.tracks.len())
+}
+
+fn parse_augmented_midi(path: &Path) -> Result<usize, String> {
+    let data = fs::read(path).map_err(|err| format!("{}", err))?;
+    let smf: augmented_midi::MIDIFile<&str, &[u8]> = augmented_midi::parse_midi_file(&data)
+        .map_err(|err| format!("{}", err))?
+        .1;
+    Ok(smf.chunks.len())
 }
 
 fn list_midis(dir: &Path) -> Vec<PathBuf> {

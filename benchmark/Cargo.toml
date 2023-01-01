@@ -10,3 +10,4 @@ edition = "2018"
 midly = { path = ".." }
 rimd = "0.0"
 nom-midi = "0.5"
+augmented-midi = "1"
