@@ -224,6 +224,33 @@ fn test_live_api(file: &str) {
 }
 
 #[test]
+fn live_trailing_bytes() {
+    // Make sure that the live API allows trailing bytes
+    use crate::{live::LiveEvent, MidiMessage};
+
+    assert_eq!(
+        LiveEvent::parse(&[0x93, 0x7F, 0x7F, 0x34]).unwrap(),
+        LiveEvent::Midi {
+            channel: 3.into(),
+            message: MidiMessage::NoteOn {
+                key: 0x7F.into(),
+                vel: 0x7F.into()
+            }
+        }
+    );
+    assert_eq!(
+        LiveEvent::parse(&[0x93, 0x7F, 0x7F, 0x80, 0xFF]).unwrap(),
+        LiveEvent::Midi {
+            channel: 3.into(),
+            message: MidiMessage::NoteOn {
+                key: 0x7F.into(),
+                vel: 0x7F.into()
+            }
+        }
+    );
+}
+
+#[test]
 fn live_system() {
     use crate::{
         live::{LiveEvent, MtcQuarterFrameMessage, SystemCommon, SystemRealtime},
