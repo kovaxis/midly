@@ -59,6 +59,8 @@ impl<W> Clone for NotSeekable<W> {
 }
 impl<W> Copy for NotSeekable<W> {}
 impl<W> NotSeekable<W> {
+    /// A `NotSeekable` value should never exist.
+    /// Because of this, this function never returns, as it could never have been called.
     #[inline]
     pub fn as_never(&self) -> ! {
         match self.never {}

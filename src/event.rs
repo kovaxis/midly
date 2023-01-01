@@ -76,7 +76,12 @@ pub enum TrackEventKind<'a> {
     /// A message associated to a MIDI channel carrying musical data.
     ///
     /// Usually, the bulk of MIDI data is these kind of messages.
-    Midi { channel: u4, message: MidiMessage },
+    Midi {
+        /// The MIDI channel that this event is associated with.
+        channel: u4,
+        /// The MIDI message type and associated data.
+        message: MidiMessage,
+    },
     /// A System Exclusive message, carrying arbitrary data.
     ///
     /// The data bytes included here do not include the implicit `0xF0` prefix.
@@ -452,16 +457,27 @@ pub enum MetaMessage<'a> {
     /// For `Format::Sequential` MIDI file types, `TrackNumber` can be empty, and defaults to
     /// the track index.
     TrackNumber(Option<u16>),
+    /// Arbitrary text associated to an instant.
     Text(&'a [u8]),
+    /// A copyright notice.
     Copyright(&'a [u8]),
+    /// Information about the name of the track.
     TrackName(&'a [u8]),
+    /// Information about the name of the current instrument.
     InstrumentName(&'a [u8]),
+    /// Arbitrary lyric information associated to an instant.
     Lyric(&'a [u8]),
+    /// Arbitrary marker text associated to an instant.
     Marker(&'a [u8]),
+    /// Arbitrary cue point text associated to an instant.
     CuePoint(&'a [u8]),
+    /// Information about the name of the current program.
     ProgramName(&'a [u8]),
+    /// Name of the device that this file was intended to be played with.
     DeviceName(&'a [u8]),
+    /// Number of the MIDI channel that this file was intended to be played with.
     MidiChannel(u4),
+    /// Number of the MIDI port that this file was intended to be played with.
     MidiPort(u7),
     /// Obligatory at track end.
     EndOfTrack,
@@ -470,6 +486,10 @@ pub enum MetaMessage<'a> {
     /// Usually appears at the beggining of a track, before any midi events are sent, but there
     /// are no guarantees.
     Tempo(u24),
+    /// The MIDI SMPTE offset meta message specifies an offset for the starting point of a MIDI
+    /// track from the start of a sequence in terms of SMPTE time (hours:minutes:seconds:frames:subframes).
+    ///
+    /// [Reference](https://www.recordingblogs.com/wiki/midi-smpte-offset-meta-message)
     SmpteOffset(SmpteTime),
     /// In order of the MIDI specification, numerator, denominator, MIDI clocks per click, 32nd
     /// notes per quarter
@@ -478,6 +498,8 @@ pub enum MetaMessage<'a> {
     /// numbers indicate number of sharps.
     /// `false` indicates a major scale, `true` indicates a minor scale.
     KeySignature(i8, bool),
+    /// Arbitrary data intended for the sequencer.
+    /// This data is never sent to a device.
     SequencerSpecific(&'a [u8]),
     /// An unknown or malformed meta-message.
     ///

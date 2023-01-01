@@ -164,6 +164,7 @@
 //!   [`ErrorKind::Malformed`](enum.ErrorKind.html#variant.Malformed) when such a situation arises.
 
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
+#![warn(missing_docs)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;

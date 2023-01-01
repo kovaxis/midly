@@ -27,7 +27,12 @@ pub enum LiveEvent<'a> {
     /// A MIDI message associated with a channel, carrying musical data.
     ///
     /// Status byte in the range `0x80 ..= 0xEF`.
-    Midi { channel: u4, message: MidiMessage },
+    Midi {
+        /// The MIDI channel that this message is associated with.
+        channel: u4,
+        /// The MIDI message type and associated data.
+        message: MidiMessage,
+    },
     /// A System Common message, as defined by the MIDI spec, including System Exclusive events.
     ///
     /// Status byte in the range `0xF0 ..= 0xF7`.
@@ -218,6 +223,7 @@ pub enum SystemCommon<'a> {
     SongPosition(u14),
     /// Select a given song index.
     SongSelect(u7),
+    /// Request the device to tune itself.
     TuneRequest,
     /// An undefined System Common message, with arbitrary data bytes.
     Undefined(u8, &'a [u7]),
@@ -360,12 +366,17 @@ impl MtcQuarterFrameMessage {
 pub enum SystemRealtime {
     /// If sent, they should be sent 24 times per quarter note.
     TimingClock,
+    /// Request the device to start playing at position 0.
     Start,
+    /// Request the device to continue playing without resetting the position.
     Continue,
+    /// Request the device to stop playing, but keep track of the position where it stopped.
     Stop,
     /// Once one of these messages is transmitted, a message should arrive every 300ms or else the
     /// connection is considered broken.
     ActiveSensing,
+    /// Request the device to reset itself, usually to the same state as it was after turning on.
+    /// Usually, turns off all playing notes, clears running status, sets song position to 0, etc...
     Reset,
     /// An unknown system realtime message, with the given id byte.
     Undefined(u8),

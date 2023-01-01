@@ -295,12 +295,42 @@ macro_rules! restricted_int {
         $( int_feature!{$name ; $inner : $feature} )*
     };
 }
-restricted_int! {u15: u16 => 15; read}
-restricted_int! {u14: u16 => 14; read read_u7}
-restricted_int! {u7: u8 => 7; read}
-restricted_int! {u4: u8 => 4; read}
-restricted_int! {u2: u8 => 2; read}
-restricted_int! {u24: u32 => 24;}
+restricted_int! {
+    /// A 15-bit integer type.
+    ///
+    /// Wraps the `u16` type and ensures that the top bit is always zero.
+    u15: u16 => 15; read
+}
+restricted_int! {
+    /// A 14-bit integer type.
+    ///
+    /// Wraps the `u16` type and ensures that the top two bits are always zero.
+    u14: u16 => 14; read read_u7
+}
+restricted_int! {
+    /// A 7-bit integer type.
+    ///
+    /// Wraps the `u8` type and ensures that the top bit is always zero.
+    u7: u8 => 7; read
+}
+restricted_int! {
+    /// A 4-bit integer type.
+    ///
+    /// Wraps the `u8` type and ensures that the top 4 bits are always zero.
+    u4: u8 => 4; read
+}
+restricted_int! {
+    /// A 2-bit integer type.
+    ///
+    /// Wraps the `u8` type and ensures that the top 6 bits are always zero.
+    u2: u8 => 2; read
+}
+restricted_int! {
+    /// A 24-bit integer type.
+    ///
+    /// Wraps the `u32` type and ensures that the top 8 bits are always zero.
+    u24: u32 => 24;
+}
 impl IntRead for u24 {
     fn read(raw: &mut &[u8]) -> StdResult<u24, &'static ErrorKind> {
         let bytes = raw
@@ -484,7 +514,7 @@ impl Timing {
     }
 }
 
-/// Encodes an SMPTE time of the day.
+/// A timestamp encoding an SMPTE time of the day.
 ///
 /// Enforces several guarantees:
 ///
@@ -503,6 +533,7 @@ pub struct SmpteTime {
     fps: Fps,
 }
 impl SmpteTime {
+    /// Create a new SMPTE timestamp with the given information.
     #[inline]
     pub fn new(
         hour: u8,
@@ -534,36 +565,46 @@ impl SmpteTime {
         })
     }
 
+    /// Get the hour component of this timestamp.
     #[inline]
     pub fn hour(&self) -> u8 {
         self.hour
     }
 
+    /// Get the minute component of this timestamp.
     #[inline]
     pub fn minute(&self) -> u8 {
         self.minute
     }
 
+    /// Get the second component of this timestamp.
     #[inline]
     pub fn second(&self) -> u8 {
         self.second
     }
 
+    /// Get the frame component of this timestamp.
+    /// The meaning of this value depends on the value of `fps`.
     #[inline]
     pub fn frame(&self) -> u8 {
         self.frame
     }
 
+    /// Get the subframe component of this timestamp (hundredths of a frame).
     #[inline]
     pub fn subframe(&self) -> u8 {
         self.subframe
     }
 
+    /// Get the FPS component of this timestamp.
     #[inline]
     pub fn fps(&self) -> Fps {
         self.fps
     }
 
+    /// Convert the second + frame + subframe components of this timestamp into a single
+    /// floating-point number of seconds.
+    /// Note that this does not include the hour and minute components.
     #[inline]
     pub fn second_f32(&self) -> f32 {
         self.second as f32

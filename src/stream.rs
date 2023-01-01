@@ -134,8 +134,11 @@ impl<B: Buffer> MidiStream<B> {
 /// This trait is automatically implemented by the [`stack_buffer!`](../macro.stack_buffer.html)
 /// macro, and very rarely should be implemented manually.
 pub trait Buffer {
+    /// Add a new slice of data to the tail of the buffer.
     fn push(&mut self, data: &[u7]) -> StdResult<(), ()>;
+    /// Clear the entire buffer.
     fn clear(&mut self);
+    /// Present the buffer contents as a slice of 7-bit units.
     fn as_slice(&self) -> &[u7];
 }
 
@@ -307,10 +310,12 @@ mod default_buf_impl {
     }
     impl DefaultBuffer {
         const MAX_CAP: usize = 256 * 1024;
+        /// Get the maximum capacity of this buffer.
         #[inline]
         pub const fn max_cap(&self) -> usize {
             Self::MAX_CAP
         }
+        /// Create a new empty buffer.
         #[inline]
         pub const fn new() -> DefaultBuffer {
             DefaultBuffer { buf: Vec::new() }
@@ -355,10 +360,12 @@ mod default_buf_impl {
         }
     }
     impl DefaultBuffer {
+        /// Get the maximum capacity of this buffer.
         #[inline]
         pub const fn max_cap(&self) -> usize {
             InnerBuf::MAX_CAP
         }
+        /// Create a new empty buffer.
         #[inline]
         pub const fn new() -> DefaultBuffer {
             DefaultBuffer {
