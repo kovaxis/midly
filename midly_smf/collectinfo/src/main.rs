@@ -1,4 +1,4 @@
-use midly::Smf;
+use midly_smf::Smf;
 use std::{
     env,
     error::Error,
@@ -24,9 +24,9 @@ fn fs_vs_cpu(path: &Path) -> Result<(), Box<dyn Error>> {
     let mut iters = 0;
     loop {
         let a = Instant::now();
-        let data = fs::read(path)?;
+        let mut data = fs::read(path)?;
         let b = Instant::now();
-        let smf = Smf::parse(&data)?;
+        let smf = Smf::parse(&mut data)?;
         let c = Instant::now();
         if let Some((_, _, track_count)) = first {
             total_fs += b - a;
@@ -61,8 +61,8 @@ fn fs_vs_cpu(path: &Path) -> Result<(), Box<dyn Error>> {
 }
 
 fn bytes_per_event(path: &Path) -> Result<(), Box<dyn Error>> {
-    let file = fs::read(path)?;
-    let (_header, tracks) = midly::parse(&file)?;
+    let mut file = fs::read(path)?;
+    let (_header, tracks) = midly_smf::parse(&mut file)?;
     let mut total_bytes = 0;
     let mut total_events = 0;
     let mut min_bpe = std::f64::INFINITY;

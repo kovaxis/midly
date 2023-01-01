@@ -4,19 +4,28 @@ use std::{
     time::Instant,
 };
 
-const MIDI_DIR: &str = "../test-asset";
+const MIDI_DIR: &str = "../../test-asset";
 
 const MIDI_EXT: &[&str] = &["mid", "midi", "rmi"];
 
 const PARSERS: &[(&str, fn(&Path) -> Result<usize, String>)] = &[
     (&"midly", parse_midly),
+    (&"midly_old", parse_midly_old),
     (&"nom-midi", parse_nom),
     (&"rimd", parse_rimd),
 ];
 
 fn parse_midly(path: &Path) -> Result<usize, String> {
+    let mut data = fs::read(path).map_err(|err| format!("{}", err))?;
+    let smf = midly_smf::Smf::parse(&mut data).map_err(|err| format!("{}", err))?;
+    let tcount = smf.tracks.len();
+    smf.forget_drop();
+    Ok(tcount)
+}
+
+fn parse_midly_old(path: &Path) -> Result<usize, String> {
     let data = fs::read(path).map_err(|err| format!("{}", err))?;
-    let smf = midly::Smf::parse(&data).map_err(|err| format!("{}", err))?;
+    let smf = midly_old::Smf::parse(&data).map_err(|err| format!("{}", err))?;
     Ok(smf.tracks.len())
 }
 
@@ -88,6 +97,20 @@ fn use_parser(parse: fn(&Path) -> Result<usize, String>, path: &Path) -> Result<
 }
 
 fn main() {
+    //TEMP
+    println!(
+        "MidiMessage size: {}",
+        std::mem::size_of::<midly_smf::midly_core::MidiMessage>()
+    );
+    println!(
+        "Bytes size: {}",
+        std::mem::size_of::<midly_smf::midly_core::Bytes>()
+    );
+    println!(
+        "TrackEventKind size: {}",
+        std::mem::size_of::<midly_old::TrackEventKind>()
+    );
+
     let midi_filter = env::args().nth(1).unwrap_or_default().to_lowercase();
     let parser_filter = env::args().nth(2).unwrap_or_default().to_lowercase();
     let midi_dir = env::args().nth(3).unwrap_or(MIDI_DIR.to_string());

@@ -1,13 +1,20 @@
 [package]
-name = "midly_old"
-version = "0.5.1"
+name = "midly_smf"
+version = "0.1.0"
 edition = "2018"
-
-[workspace]
-members = ["midly_core", "midly_smf", "midly_rawstream", "midly", "midly_smf/benchmark", "midly_smf/collectinfo"]
+authors = ["negamartin"]
+include = [
+  "/src/*",
+  "/Cargo.toml",
+]
+description = "Fast MIDI decoder and encoder both for .mid files and real-time MIDI events"
+repository = "https://github.com/negamartin/midly"
+readme = "README.md"
+keywords = ["midi", "no_std", "audio", "parser"]
+categories = ["multimedia::audio", "multimedia::encoding", "multimedia"]
+license = "Unlicense"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 
 [features]
 default = ["alloc", "std", "parallel"]
@@ -22,11 +29,11 @@ strict = []
 # Disabling this feature leaves pretty much only the raw `parse` and `write` functions, but makes
 # the crate fully `no_std`.
 # If this feature is enabled, but the `std` feature is not, the crate becomes `no_std + alloc`.
-alloc = []
+alloc = ["midly_core/alloc"]
 
 # Integrate with the `std` library.
 # Depends on the `alloc` feature.
-std = ["alloc"]
+std = ["alloc", "midly_core/std"]
 
 # Enable multithreaded parsing.
 # Depends on the `std` feature.
@@ -35,5 +42,10 @@ std = ["alloc"]
 # Currently, multithreading brings in the `rayon` dependency.
 parallel = ["std", "rayon"]
 
+
 [dependencies]
+midly_core = { path = "../midly_core", default-features = false }
 rayon = { version = "1", optional = true }
+
+[dev-dependencies]
+midly_rawstream = { path = "../midly_rawstream" }
