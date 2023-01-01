@@ -269,6 +269,28 @@ macro_rules! restricted_int {
                 Some(self.cmp(&rhs.as_int()))
             }
         }
+        impl std::ops::Add for $name {
+            type Output = Self;
+            fn add(self, other: Self) -> Self {
+                Self::new(self.as_int() + other.as_int())
+            }
+        }
+        impl std::ops::Sub for $name {
+            type Output = Self;
+            fn sub(self, other: Self) -> Self {
+                Self::new(self.as_int() - other.as_int())
+            }
+        }
+        impl std::ops::AddAssign for $name {
+            fn add_assign(&mut self, other: Self) {
+                *self = *self + other
+            }
+        }
+        impl std::ops::SubAssign for $name {
+            fn sub_assign(&mut self, other: Self) {
+                *self = *self - other
+            }
+        }
 
         $( int_feature!{$name ; $inner : $feature} )*
     };
@@ -644,5 +666,15 @@ impl Fps {
             30 => 30.0,
             _ => unreachable!(),
         }
+    }
+}
+impl From<Fps> for f32 {
+    fn from(x: Fps) -> Self {
+        x.as_f32()
+    }
+}
+impl From<Fps> for u8 {
+    fn from(x: Fps) -> Self {
+        x.as_int()
     }
 }
