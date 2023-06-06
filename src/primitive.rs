@@ -518,11 +518,11 @@ impl Timing {
 ///
 /// Enforces several guarantees:
 ///
-/// - `hour` is inside [0,23]
-/// - `minute` is inside [0,59]
-/// - `second` is inside [0,59]
-/// - `frame` is inside [0,fps[
-/// - `subframe` is inside [0,99]
+/// - `hour` is inside [0, 23]
+/// - `minute` is inside [0, 59]
+/// - `second` is inside [0, 59]
+/// - `frame` is inside [0, fps - 1]
+/// - `subframe` is inside [0, 99]
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub struct SmpteTime {
     hour: u8,
