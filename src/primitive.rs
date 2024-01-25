@@ -291,6 +291,39 @@ macro_rules! restricted_int {
                 *self = *self - other
             }
         }
+        impl core::ops::BitOr for $name {
+            type Output = Self;
+            fn bitor(self, other: Self) -> Self {
+                Self::new(self.as_int() | other.as_int())
+            }
+        }
+        impl core::ops::BitAnd for $name {
+            type Output = Self;
+            fn bitand(self, other: Self) -> Self {
+                Self::new(self.as_int() & other.as_int())
+            }
+        }
+        impl core::ops::BitXor for $name {
+            type Output = Self;
+            fn bitxor(self, other: Self) -> Self {
+                Self::new(self.as_int() ^ other.as_int())
+            }
+        }
+        impl core::ops::BitOrAssign for $name {
+            fn bitor_assign(&mut self, other: Self) {
+                *self = *self | other
+            }
+        }
+        impl core::ops::BitAndAssign for $name {
+            fn bitand_assign(&mut self, other: Self) {
+                *self = *self & other
+            }
+        }
+        impl core::ops::BitXorAssign for $name {
+            fn bitxor_assign(&mut self, other: Self) {
+                *self = *self ^ other
+            }
+        }
 
         $( int_feature!{$name ; $inner : $feature} )*
     };
