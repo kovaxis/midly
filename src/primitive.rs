@@ -328,6 +328,14 @@ macro_rules! restricted_int {
         $( int_feature!{$name ; $inner : $feature} )*
     };
 }
+
+impl core::ops::Add<i8> for u7 {
+    type Output = Self;
+    fn add(self, other: i8) -> Self {
+        Self::new((u8::from(self) as usize).wrapping_add_signed(other.into()) as u8)
+    }
+}
+
 restricted_int! {
     /// A 15-bit integer type.
     ///
