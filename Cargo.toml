@@ -4,8 +4,8 @@ version = "0.5.3"
 edition = "2018"
 authors = ["negamartin"]
 include = [
-  "/src/*",
-  "/Cargo.toml",
+    "/src/*",
+    "/Cargo.toml",
 ]
 description = "Fast MIDI decoder and encoder both for .mid files and real-time MIDI events"
 repository = "https://github.com/negamartin/midly"
@@ -39,6 +39,8 @@ std = ["alloc"]
 # Multithreaded parsing is automatically disabled for tiny MIDI files.
 # Currently, multithreading brings in the `rayon` dependency.
 parallel = ["std", "rayon"]
+serde = ["dep:serde"]
 
 [dependencies]
-rayon = { version="1", optional = true }
+rayon = { version = "1", optional = true }
+serde = { version = "1.0.198", optional = true, features = ["derive"] }
