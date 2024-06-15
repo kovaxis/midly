@@ -620,3 +620,29 @@ impl<'a> MetaMessage<'a> {
         }
     }
 }
+
+impl<'a> core::fmt::Display for MetaMessage<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut print_ascii = |bytes: &[u8], name: &str | {
+            if let Ok(s) = core::str::from_utf8(bytes){
+                write!(f, "{name}(\"{s}\")")
+            }
+            else {
+                write!(f, "{:?}", self)
+            }
+        };
+
+        match self {
+            MetaMessage::Text(bytes) => print_ascii(bytes, "Text"),
+            MetaMessage::Copyright(bytes) => print_ascii(bytes, "Copyright"),
+            MetaMessage::TrackName(bytes) => print_ascii(bytes, "TrackName"),
+            MetaMessage::InstrumentName(bytes) => print_ascii(bytes, "InstrumentName"),
+            MetaMessage::Lyric(bytes) => print_ascii(bytes, "Lyric"),
+            MetaMessage::Marker(bytes) => print_ascii(bytes, "Marker"),
+            MetaMessage::CuePoint(bytes) => print_ascii(bytes, "CuePoint"),
+            MetaMessage::ProgramName(bytes) => print_ascii(bytes, "ProgramName"),
+            MetaMessage::DeviceName(bytes) => print_ascii(bytes, "DeviceName"),
+            _ => write!(f, "{:?}", self),
+        }
+    }
+}
