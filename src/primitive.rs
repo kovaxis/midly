@@ -100,7 +100,7 @@ macro_rules! restricted_int {
         #[allow(non_camel_case_types)]
         pub struct $name($inner);
         impl From<$inner> for $name {
-            /// Lossy convertion, loses top bit.
+            /// Lossy conversion, loses top bit.
             #[inline]
             fn from(raw: $inner) -> $name {
                 $name::from_int_lossy(raw)
