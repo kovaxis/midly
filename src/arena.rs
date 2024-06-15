@@ -6,7 +6,7 @@ use core::cell::UnsafeCell;
 /// Helps overcome limitations of the lifetime system when constructing MIDI events and files.
 ///
 /// Because many events contain references to data that outlives them, it can be hard to build a
-/// MIDI file programatically.
+/// MIDI file programmatically.
 ///
 /// Consider the following code:
 ///
@@ -79,7 +79,7 @@ impl Arena {
         // SAFETY:
         // Accessing `self.allocations` is safe as long as there are no concurrent reads or writes.
         // The _contents_ of `self.allocations` might have outstanding references, but reading the
-        // length does not require derefencing the contents.
+        // length does not require dereferencing the contents.
         unsafe { (*self.allocations.get()).len() }
     }
 

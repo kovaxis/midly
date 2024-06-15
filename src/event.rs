@@ -483,7 +483,7 @@ pub enum MetaMessage<'a> {
     EndOfTrack,
     /// Amount of microseconds per beat (quarter note).
     ///
-    /// Usually appears at the beggining of a track, before any midi events are sent, but there
+    /// Usually appears at the beginning of a track, before any midi events are sent, but there
     /// are no guarantees.
     Tempo(u24),
     /// The MIDI SMPTE offset meta message specifies an offset for the starting point of a MIDI

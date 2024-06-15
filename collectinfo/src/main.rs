@@ -127,7 +127,7 @@ fn main() {
         .collect::<Vec<_>>();
     if collectors.is_empty() {
         eprintln!("no info collectors match the pattern \"{}\"", info_filter);
-        eprint!("available info colectors: ");
+        eprint!("available info collectors: ");
         for (i, (name, _)) in INFO_COLLECTORS.iter().enumerate() {
             if i > 0 {
                 eprint!(", ");
