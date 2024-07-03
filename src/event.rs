@@ -231,6 +231,7 @@ impl<'a> TrackEventKind<'a> {
 /// [`LiveEvent::parse`](live/enum.LiveEvent.html#method.parse) method instead and ignore all
 /// variants except for [`LiveEvent::Midi`](live/enum.LiveEvent.html#variant.Midi).
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum MidiMessage {
     /// Stop playing a note.
     NoteOff {
@@ -387,6 +388,7 @@ impl MidiMessage {
 /// A value of `0x2000` indicates no bend.
 /// A value of `0x3FFF` indicates full bend upwards.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct PitchBend(pub u14);
 impl PitchBend {
     /// The minimum value of `0x0000`, indicating full bend downwards.

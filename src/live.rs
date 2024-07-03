@@ -23,6 +23,7 @@ use crate::{event::TrackEventKind, Arena};
 ///
 /// See the [`live`](index.html) module for more information.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum LiveEvent<'a> {
     /// A MIDI message associated with a channel, carrying musical data.
     ///
@@ -210,11 +211,13 @@ impl<'a> LiveEvent<'a> {
 
 /// A "system common event", as defined by the MIDI spec.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SystemCommon<'a> {
     /// A system-exclusive event.
     ///
     /// System Exclusive events start with a `0xF0` byte and finish with a `0xF7` byte, but this
     /// slice does not include either: it only includes data bytes in the `0x00..=0x7F` range.
+    #[cfg_attr(feature = "serde", serde(skip_deserializing))]
     SysEx(&'a [u7]),
     /// A MIDI Time Code Quarter Frame message, carrying a tag type and a 4-bit tag value.
     MidiTimeCodeQuarterFrame(MtcQuarterFrameMessage, u4),
@@ -226,6 +229,7 @@ pub enum SystemCommon<'a> {
     /// Request the device to tune itself.
     TuneRequest,
     /// An undefined System Common message, with arbitrary data bytes.
+    #[cfg_attr(feature = "serde", serde(skip_deserializing))]
     Undefined(u8, &'a [u7]),
 }
 impl<'a> SystemCommon<'a> {
@@ -311,6 +315,7 @@ impl<'a> SystemCommon<'a> {
 
 /// The different kinds of info a Midi Time Code Quarter Frame message can carry.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum MtcQuarterFrameMessage {
     /// The low nibble of the frame count.
     FramesLow,
@@ -363,6 +368,7 @@ impl MtcQuarterFrameMessage {
 /// They are usually time-sensitive, get top priority and can even be transmitted in between other
 /// messages.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum SystemRealtime {
     /// If sent, they should be sent 24 times per quarter note.
     TimingClock,
@@ -379,6 +385,7 @@ pub enum SystemRealtime {
     /// Usually, turns off all playing notes, clears running status, sets song position to 0, etc...
     Reset,
     /// An unknown system realtime message, with the given id byte.
+    #[cfg_attr(feature = "serde", serde(untagged))]
     Undefined(u8),
 }
 impl SystemRealtime {

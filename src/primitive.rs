@@ -96,6 +96,7 @@ macro_rules! restricted_int {
     {$(#[$attr:meta])* $name:ident : $inner:tt => $bits:expr ; $( $feature:tt )* } => {
         $(#[$attr])*
         #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Default)]
+        #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
         #[repr(transparent)]
         #[allow(non_camel_case_types)]
         pub struct $name($inner);
