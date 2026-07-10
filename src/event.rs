@@ -572,7 +572,7 @@ impl<'a> MetaMessage<'a> {
                 u8::read(&mut data)?,
                 u8::read(&mut data)?,
             ),
-            0x59 => {
+            0x59 if data.len() >= 2 => {
                 MetaMessage::KeySignature(u8::read(&mut data)? as i8, u8::read(&mut data)? != 0)
             }
             0x7F => MetaMessage::SequencerSpecific(data),
